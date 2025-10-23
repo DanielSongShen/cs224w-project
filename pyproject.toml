@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "cs224w-project"
+version = "0.1.0"
+description = ""
+authors = ["DanielSongShen <danielsongshengit@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.15"
+datasets = "^4.3.0"
+torch = "^2.9.0"
+numpy = "^2.3.4"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

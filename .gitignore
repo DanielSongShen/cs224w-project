@@ -205,3 +205,28 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Project-specific: CS224W Project
+# Large dataset files
+data/raw/*
+data/processed/*
+# Keep directory structure
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Model outputs and results
+outputs/models/*
+outputs/results/*
+outputs/visualizations/*
+# Keep directory structure
+!outputs/models/.gitkeep
+!outputs/results/.gitkeep
+!outputs/visualizations/.gitkeep
+
+# Jupyter notebook checkpoints
+notebooks/.ipynb_checkpoints/
+
+# Wandb/TensorBoard logs (if used)
+wandb/
+runs/
+lightning_logs/
