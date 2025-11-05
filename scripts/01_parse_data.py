@@ -2,21 +2,14 @@
 from datasets import load_dataset
 import sys
 import os
+import json
 
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from src.data.parser import (
-    split_into_nodes, 
-    parse_reasoning_trace, 
-    ReasoningGraph,
-    create_edge_prompt,
-    parse_llm_edges
-)
-
-# Add graph_of_thoughts to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'graph_of_thoughts_examples'))
-from graph_of_thoughts import language_models
+# Import our modules
+from src.data.parser import preprocess_for_lcot2tree, save_preprocessed_data
+from src.data.lcot2tree_wrapper import run_lcot2tree_pipeline
 
 
 def load_filtered_samples(n: int, target_dataset: str, verbose: bool = True):
@@ -81,353 +74,156 @@ def load_filtered_samples(n: int, target_dataset: str, verbose: bool = True):
     return sample_data
 
 
-# ============================================================================
-# Test Functions for Reasoning Trace Parser
-# ============================================================================
-
-class LLMClient:
-    """Wrapper around graph_of_thoughts ChatGPT for edge creation"""
-    
-    def __init__(self, config_path: str, model_name: str = "gpt5-nano"):
-        """Initialize the LLM client
-        
-        Args:
-            config_path: Path to config.json
-            model_name: Model name in config (default: gpt5-nano)
-        """
-        self.lm = language_models.ChatGPT(config_path, model_name=model_name)
-        self.call_count = 0
-    
-    def query(self, prompt: str) -> str:
-        """Query the LLM with a prompt
-        
-        Args:
-            prompt: The prompt to send
-            
-        Returns:
-            Response text from LLM
-        """
-        self.call_count += 1
-        response = self.lm.query(prompt, num_responses=1)
-        return response[0] if isinstance(response, list) else response
-
-
-def test_node_splitting():
-    """Test splitting reasoning traces into nodes"""
-    print("\n" + "="*80)
-    print("TEST: Node Splitting")
-    print("="*80)
-    
-    # Test case 1: Simple trace with discourse markers
-    trace1 = """First, let's calculate x = 5. Next, we use x in the equation y = 2x. 
-    Wait, I made a mistake. x should be 6. Therefore, y = 12."""
-    
-    nodes1 = split_into_nodes(trace1, min_length=10)
-    
-    print(f"\nTest 1: Simple trace with markers")
-    print(f"Input: {trace1[:100]}...")
-    print(f"Number of nodes: {len(nodes1)}")
-    for node in nodes1:
-        print(f"\nNode {node.node_id} [{node.marker_category}]:")
-        print(f"  Markers: {node.markers}")
-        print(f"  Text: {node.text[:100]}...")
-    
-    # Test case 2: Trace with no markers
-    trace2 = "Calculate the sum of 1 + 2 + 3 which equals 6."
-    nodes2 = split_into_nodes(trace2, min_length=10)
-    
-    print(f"\n\nTest 2: Trace with no markers")
-    print(f"Input: {trace2}")
-    print(f"Number of nodes: {len(nodes2)}")
-    print(f"Node 0 text: {nodes2[0].text}")
-    
-    # Test case 3: Trace with backtracking
-    trace3 = """Let's solve for x. We have x^2 = 16. So x = 4. 
-    Actually, we need to consider both roots. So x = 4 or x = -4. 
-    Therefore, the solution set is {-4, 4}."""
-    
-    nodes3 = split_into_nodes(trace3, min_length=15)
-    
-    print(f"\n\nTest 3: Trace with backtracking")
-    print(f"Number of nodes: {len(nodes3)}")
-    for node in nodes3:
-        print(f"\nNode {node.node_id} [{node.marker_category}]:")
-        print(f"  Markers: {node.markers}")
-        print(f"  Text: {node.text[:80]}...")
-    
-    return nodes1, nodes2, nodes3
-
-
-def test_edge_creation(config_path: str = "config.json"):
-    """Test LLM-based edge creation"""
-    print("\n" + "="*80)
-    print("TEST: Edge Creation with GPT-5-nano")
-    print("="*80)
-    
-    trace = """Step 1: Calculate x = 5. Next, use x in equation. 
-    Wait, x should be 6. Recall from earlier that we need to check. Therefore final answer is 12."""
-    
-    nodes = split_into_nodes(trace, min_length=10)
-    
-    print(f"\nCreated {len(nodes)} nodes")
-    
-    # Test with real LLM
-    llm_client = LLMClient(config_path, model_name="gpt5-nano")
-    
-    # Create prompt
-    prompt = create_edge_prompt(nodes)
-    print(f"\nPrompt length: {len(prompt)} chars")
-    print(f"\nPrompt preview:\n{prompt[:300]}...")
-    
-    # Get response
-    print("\nQuerying LLM for edge structure...")
-    response = llm_client.query(prompt)
-    print(f"\nLLM response:\n{response}")
-    
-    # Parse edges
-    edges = parse_llm_edges(response, len(nodes))
-    
-    print(f"\nParsed {len(edges)} edges:")
-    for edge in edges:
-        print(f"  {edge.from_node} -> {edge.to_node} ({edge.edge_type})")
-    
-    return nodes, edges
-
-
-def test_full_pipeline(config_path: str = "config.json"):
-    """Test the complete parsing pipeline"""
-    print("\n" + "="*80)
-    print("TEST: Full Parsing Pipeline")
-    print("="*80)
-    
-    trace = """Let's solve the equation 2x + 5 = 15. 
-    First, subtract 5 from both sides: 2x = 10. 
-    Then, divide by 2: x = 5. 
-    Wait, let me verify this. 
-    Substituting x = 5 back: 2(5) + 5 = 10 + 5 = 15. 
-    Actually, that's correct. 
-    Therefore, the solution is x = 5."""
-    
-    print(f"\nInput trace:\n{trace}\n")
-    
-    llm_client = LLMClient(config_path, model_name="gpt5-nano")
-    graph = parse_reasoning_trace(trace, llm_client, min_node_length=15)
-    
-    print(f"Graph Statistics:")
-    print(f"  Nodes: {len(graph.nodes)}")
-    print(f"  Edges: {len(graph.edges)}")
-    print(f"  LLM calls: {llm_client.call_count}")
-    
-    print(f"\nNodes:")
-    for node in graph.nodes:
-        print(f"  {node.node_id}: {node.text[:60]}... [{node.marker_category}]")
-    
-    print(f"\nEdges:")
-    for edge in graph.edges:
-        from_text = graph.nodes[edge.from_node].text[:40]
-        to_text = graph.nodes[edge.to_node].text[:40]
-        print(f"  {edge.from_node} -> {edge.to_node} ({edge.edge_type})")
-        print(f"    From: {from_text}...")
-        print(f"    To: {to_text}...")
-    
-    return graph
-
-
-def test_with_real_data(num_samples=3, config_path: str = "config.json"):
-    """Test parser with actual dataset samples"""
-    print("\n" + "="*80)
-    print("TEST: Parsing Real Dataset Samples")
-    print("="*80)
-    
-    print(f"\nLoading {num_samples} samples from dataset...")
-    samples = load_filtered_samples(
-        n=num_samples,
-        target_dataset="PrimeIntellect/verifiable-math-problems",
-        verbose=False
-    )
-    
-    if not samples:
-        print("No samples loaded!")
-        return
-    
-    llm_client = LLMClient(config_path, model_name="gpt5-nano")
-    
-    for i, sample in enumerate(samples):
-        print(f"\n{'='*80}")
-        print(f"Sample {i+1}/{num_samples}")
-        print(f"{'='*80}")
-        
-        # Get the reasoning trace (could be in different fields)
-        trace = sample.get('reasoning_trace') or sample.get('solution') or sample.get('text', '')
-        
-        if not trace:
-            print("No reasoning trace found in sample")
-            continue
-        
-        print(f"\nOriginal trace length: {len(trace)} chars")
-        print(f"Preview: {trace[:200]}...\n")
-        
-        # Parse into graph
-        try:
-            graph = parse_reasoning_trace(trace, llm_client, min_node_length=20)
-            
-            print(f"Parsing Results:")
-            print(f"  Nodes: {len(graph.nodes)}")
-            print(f"  Edges: {len(graph.edges)}")
-            
-            print(f"\nFirst 3 nodes:")
-            for node in graph.nodes[:3]:
-                print(f"  Node {node.node_id} [{node.marker_category}]: {node.text[:80]}...")
-            
-            if len(graph.nodes) > 3:
-                print(f"  ... and {len(graph.nodes) - 3} more nodes")
-            
-            print(f"\nEdge structure:")
-            edge_types = {}
-            for edge in graph.edges:
-                edge_types[edge.edge_type] = edge_types.get(edge.edge_type, 0) + 1
-            for edge_type, count in edge_types.items():
-                print(f"  {edge_type}: {count} edges")
-                
-        except Exception as e:
-            print(f"Error parsing sample: {e}")
-            import traceback
-            traceback.print_exc()
-
-
-def run_all_tests(config_path: str = "config.json"):
-    """Run all test functions
+def test_lcot2tree_pipeline(
+    n_samples: int = 3,
+    target_dataset: str = "PrimeIntellect/verifiable-math-problems",
+    model_backend: str = "gpt5-nano",
+    output_dir: str = "./data/processed/lcot2tree_test",
+    config_path: str = "./config.json",
+    verbose: bool = True
+):
+    """
+    Test the complete LCoT2Tree pipeline with a small sample of data.
     
     Args:
-        config_path: Path to config.json file
+        n_samples: Number of samples to process
+        target_dataset: Dataset name to filter for
+        model_backend: LLM backend to use ("gpt5-nano", "qwen3-4b", "qwen3-32b")
+        output_dir: Output directory for results
+        config_path: Path to config.json with API keys
+        verbose: Whether to print progress
+    
+    Returns:
+        List of processed items with CoT trees
     """
-    print("\n" + "="*80)
-    print("RUNNING ALL PARSER TESTS")
-    print(f"Using config: {config_path}")
-    print("="*80)
+    print(f"\n{'='*80}")
+    print("Testing LCoT2Tree Pipeline")
+    print(f"{'='*80}\n")
+    
+    # Step 1: Load samples
+    print(f"Step 1: Loading {n_samples} samples from {target_dataset}...")
+    samples = load_filtered_samples(n_samples, target_dataset, verbose=verbose)
+    
+    if len(samples) == 0:
+        print("ERROR: No samples found!")
+        return None
+    
+    print(f"✓ Loaded {len(samples)} samples\n")
+    
+    # Step 2: Preprocess for LCoT2Tree
+    print("Step 2: Preprocessing samples for LCoT2Tree format...")
+    preprocessed = preprocess_for_lcot2tree(samples, dataset_name="test")
+    
+    # Save preprocessed data
+    os.makedirs(output_dir, exist_ok=True)
+    preprocessed_path = os.path.join(output_dir, "preprocessed.json")
+    save_preprocessed_data(preprocessed, preprocessed_path)
+    print(f"✓ Preprocessed and saved {len(preprocessed)} samples\n")
+    
+    # Print sample preprocessed item
+    if verbose and len(preprocessed) > 0:
+        print("Sample preprocessed item:")
+        sample_item = preprocessed[0].copy()
+        # Truncate long fields for readability
+        if "prediction" in sample_item and len(sample_item["prediction"]) > 200:
+            sample_item["prediction"] = sample_item["prediction"][:200] + "... [truncated]"
+        print(json.dumps(sample_item, indent=2))
+        print()
+    
+    # Step 3: Load config
+    print("Step 3: Loading configuration...")
+    config = {}
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+    
+    model_config = config.get(model_backend, {})
+    print(f"✓ Using backend: {model_backend}")
+    print(f"  Model: {model_config.get('model_id', 'default')}\n")
+    
+    # Step 4: Run LCoT2Tree pipeline
+    print("Step 4: Running LCoT2Tree pipeline...")
+    print("This may take several minutes depending on the LLM backend...\n")
     
     try:
-        # Test 1: Node splitting (no LLM needed)
-        test_node_splitting()
+        results = run_lcot2tree_pipeline(
+            reasoning_traces=preprocessed,
+            output_dir=output_dir,
+            model_backend=model_backend,
+            config=model_config,
+            max_workers=config.get("lcot2tree", {}).get("max_workers", 10)
+        )
         
-        # Test 2: Edge creation (uses LLM)
-        test_edge_creation(config_path)
+        print(f"\n✓ Pipeline complete! Processed {len(results)} samples")
+        print(f"✓ Results saved to: {output_dir}/final.json")
         
-        # Test 3: Full pipeline (uses LLM)
-        test_full_pipeline(config_path)
+        # Print statistics
+        total_in_tokens = sum(item.get("in_token_cost", 0) for item in results)
+        total_out_tokens = sum(item.get("out_token_cost", 0) for item in results)
         
-        # Test 4: Real data (optional, uses LLM and API)
-        # test_with_real_data(num_samples=2, config_path=config_path)
+        print(f"\nToken usage statistics:")
+        print(f"  Input tokens: {total_in_tokens:,}")
+        print(f"  Output tokens: {total_out_tokens:,}")
+        print(f"  Total tokens: {total_in_tokens + total_out_tokens:,}")
         
-        print("\n" + "="*80)
-        print("ALL TESTS COMPLETED SUCCESSFULLY")
-        print("="*80)
+        # Print sample tree
+        if verbose and len(results) > 0 and "cot_tree" in results[0]:
+            print("\nSample CoT tree structure:")
+            print(json.dumps(results[0]["cot_tree"], indent=2)[:500] + "... [truncated]")
         
-    except Exception as e:
         print(f"\n{'='*80}")
-        print(f"TEST FAILED: {e}")
-        print(f"{'='*80}")
+        print("Test completed successfully!")
+        print(f"{'='*80}\n")
+        
+        return results
+    
+    except Exception as e:
+        print(f"\n✗ Pipeline failed with error: {e}")
         import traceback
         traceback.print_exc()
+        return None
 
 
-if __name__ == "__main__":
+def main():
+    """Main entry point for testing"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='Parse reasoning traces from SYNTHETIC-1 dataset')
-    parser.add_argument('--test', action='store_true', help='Run parser tests')
-    parser.add_argument('--analyze', action='store_true', help='Analyze score distribution')
-    parser.add_argument('--samples', type=int, default=10000, help='Number of samples to load')
+    parser = argparse.ArgumentParser(description="Test LCoT2Tree pipeline")
+    parser.add_argument(
+        "--n_samples", type=int, default=3,
+        help="Number of samples to process (default: 3)"
+    )
+    parser.add_argument(
+        "--dataset", type=str,
+        default="PrimeIntellect/verifiable-math-problems",
+        help="Target dataset name"
+    )
+    parser.add_argument(
+        "--backend", type=str, default="gpt5-nano",
+        choices=["gpt5-nano", "qwen3-4b", "qwen3-32b", "gpt5-mini"],
+        help="LLM backend to use (default: gpt5-nano)"
+    )
+    parser.add_argument(
+        "--output_dir", type=str,
+        default="./data/processed/lcot2tree_test",
+        help="Output directory"
+    )
+    parser.add_argument(
+        "--config", type=str, default="./config.json",
+        help="Path to config.json"
+    )
     
     args = parser.parse_args()
     
-    if args.test:
-        # Run parser tests
-        run_all_tests()
-    elif args.analyze:
-        # Original score distribution analysis
-        samples = load_filtered_samples(
-            n=args.samples,
-            target_dataset="PrimeIntellect/verifiable-math-problems",
-            verbose=False
-        )
-        
-        # Analyze score distribution
-        print(f"\n{'='*80}")
-        print(f"Score Distribution Analysis")
-        print(f"{'='*80}")
-        
-        scores = [sample['score'] for sample in samples]
-        
-        # Count unique scores
-        from collections import Counter
-        score_counts = Counter(scores)
-        
-        print(f"\nTotal samples: {len(samples)}")
-        print(f"\nScore distribution:")
-        for score in sorted(score_counts.keys()):
-            count = score_counts[score]
-            percentage = (count / len(samples)) * 100
-            print(f"  Score {score}: {count:4d} samples ({percentage:5.2f}%)")
-        
-        print(f"\nUnique scores: {sorted(score_counts.keys())}")
-        
-        # Analyze token length of reasoning traces
-        print(f"\n{'='*80}")
-        print(f"Token Length Analysis")
-        print(f"{'='*80}")
-        
-        # Extract llm_response lengths
-        trace_lengths_chars = []
-        for sample in samples:
-            llm_response = sample.get('llm_response', '')
-            if llm_response:
-                trace_lengths_chars.append(len(llm_response))
-        
-        if trace_lengths_chars:
-            # Approximate token count: ~4 characters per token for English
-            CHARS_PER_TOKEN = 4.0
-            trace_lengths_tokens = [length / CHARS_PER_TOKEN for length in trace_lengths_chars]
-            
-            import statistics
-            avg_chars = statistics.mean(trace_lengths_chars)
-            avg_tokens = statistics.mean(trace_lengths_tokens)
-            median_chars = statistics.median(trace_lengths_chars)
-            median_tokens = statistics.median(trace_lengths_tokens)
-            min_chars = min(trace_lengths_chars)
-            max_chars = max(trace_lengths_chars)
-            min_tokens = min(trace_lengths_tokens)
-            max_tokens = max(trace_lengths_tokens)
-            
-            print(f"\nCharacter lengths:")
-            print(f"  Average: {avg_chars:.1f} chars")
-            print(f"  Median:  {median_chars:.1f} chars")
-            print(f"  Min:     {min_chars} chars")
-            print(f"  Max:     {max_chars} chars")
-            
-            print(f"\nEstimated token counts (using ~{CHARS_PER_TOKEN} chars/token):")
-            print(f"  Average: {avg_tokens:.1f} tokens")
-            print(f"  Median:  {median_tokens:.1f} tokens")
-            print(f"  Min:     {min_tokens:.1f} tokens")
-            print(f"  Max:     {max_tokens:.1f} tokens")
-            
-            # Calculate percentiles for better understanding
-            sorted_tokens = sorted(trace_lengths_tokens)
-            p25 = sorted_tokens[len(sorted_tokens) // 4]
-            p75 = sorted_tokens[3 * len(sorted_tokens) // 4]
-            p90 = sorted_tokens[9 * len(sorted_tokens) // 10]
-            p95 = sorted_tokens[95 * len(sorted_tokens) // 100]
-            
-            print(f"\nToken count percentiles:")
-            print(f"  25th: {p25:.1f} tokens")
-            print(f"  75th: {p75:.1f} tokens")
-            print(f"  90th: {p90:.1f} tokens")
-            print(f"  95th: {p95:.1f} tokens")
-        else:
-            print("\nNo llm_response found in samples")
-        
-        print(f"{'='*80}")
-    else:
-        print("Please specify --test or --analyze")
-        print("Usage: python 01_parse_data.py --test  # Run parser tests")
-        print("       python 01_parse_data.py --analyze --samples 1000  # Analyze score distribution")
+    test_lcot2tree_pipeline(
+        n_samples=args.n_samples,
+        target_dataset=args.dataset,
+        model_backend=args.backend,
+        output_dir=args.output_dir,
+        config_path=args.config,
+        verbose=True
+    )
+
+
+if __name__ == "__main__":
+    main()
