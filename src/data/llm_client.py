@@ -13,12 +13,13 @@ class LLMClient:
         self.temperature = temperature
         self.max_tokens = max_tokens
     
-    def generate(self, prompt: str, **kwargs) -> tuple[str, int, int]:
+    def generate(self, prompt: str = None, messages: list = None, **kwargs) -> tuple[str, int, int]:
         """
-        Generate response from prompt.
+        Generate response from prompt or messages.
         
         Args:
-            prompt: Input prompt
+            prompt: Input prompt (deprecated, use messages instead)
+            messages: List of message dicts with 'role' and 'content' keys
             **kwargs: Additional generation parameters
         
         Returns:
@@ -47,17 +48,23 @@ class OpenAIClient(LLMClient):
         
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
     
-    def generate(self, prompt: str, **kwargs) -> tuple[str, int, int]:
+    def generate(self, prompt: str = None, messages: list = None, **kwargs) -> tuple[str, int, int]:
         """Generate response using OpenAI API"""
         temperature = kwargs.get("temperature", self.temperature)
         max_tokens = kwargs.get("max_tokens", self.max_tokens)
         
+        # Handle both prompt (legacy) and messages (preferred) formats
+        if messages is None:
+            if prompt is None:
+                raise ValueError("Either prompt or messages must be provided")
+            messages = [{"role": "user", "content": prompt}]
+        
         try:
-            # Older models use max_tokens
+            # Newer models (gpt-5) use max_completion_tokens and temperature=1 only
             if "gpt-5" in self.model_name:
                 response = self.client.chat.completions.create(
                     model=self.model_name,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=messages,
                     temperature=1,
                     max_completion_tokens=max_tokens,
                     stream=False
@@ -65,7 +72,7 @@ class OpenAIClient(LLMClient):
             else:
                 response = self.client.chat.completions.create(
                     model=self.model_name,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
                     stream=False
@@ -121,24 +128,30 @@ class HuggingFaceClient(LLMClient):
         self.model.eval()
         print(f"Model loaded successfully on {self.device}")
     
-    def generate(self, prompt: str, **kwargs) -> tuple[str, int, int]:
+    def generate(self, prompt: str = None, messages: list = None, **kwargs) -> tuple[str, int, int]:
         """Generate response using HuggingFace model"""
         import torch
         
         temperature = kwargs.get("temperature", self.temperature)
         max_new_tokens = kwargs.get("max_tokens", self.max_tokens)
         
+        # Handle both prompt (legacy) and messages (preferred) formats
+        if messages is None:
+            if prompt is None:
+                raise ValueError("Either prompt or messages must be provided")
+            messages = [{"role": "user", "content": prompt}]
+        
         try:
             # Format as chat if tokenizer supports it
             if hasattr(self.tokenizer, "apply_chat_template"):
-                messages = [{"role": "user", "content": prompt}]
                 formatted_prompt = self.tokenizer.apply_chat_template(
                     messages,
                     tokenize=False,
                     add_generation_prompt=True
                 )
             else:
-                formatted_prompt = prompt
+                # Fallback: just use the last message content
+                formatted_prompt = messages[-1]["content"]
             
             # Tokenize
             inputs = self.tokenizer(
@@ -184,7 +197,7 @@ def create_llm_client(
     Factory function to create LLM client.
     
     Args:
-        backend: One of "openai", "huggingface", "gpt5-nano", "qwen3-4b", "qwen3-32b"
+        backend: One of "openai", "huggingface", "gpt5-nano", "gpt5-mini", "qwen3-4b", "qwen3-32b", "deepseek", "deepseek-v3.2"
         model_name: Explicit model name (overrides backend defaults)
         config: Configuration dict
         **kwargs: Additional parameters passed to client constructor
@@ -195,7 +208,16 @@ def create_llm_client(
     config = config or {}
     
     # Handle named backends
-    if backend == "gpt5-nano":
+    if backend == "deepseek-v3.2" or backend == "deepseek":
+        return OpenAIClient(
+            model_name=model_name or config.get("model_id", "deepseek-chat"),
+            api_key=config.get("api_key") or kwargs.get("api_key"),
+            temperature=config.get("temperature", kwargs.get("temperature", 1.0)),
+            max_tokens=config.get("max_tokens", kwargs.get("max_tokens", 4096)),
+            base_url=config.get("url") or kwargs.get("base_url")
+        )
+    
+    elif backend == "gpt5-nano":
         return OpenAIClient(
             model_name=model_name or "gpt-5-nano",
             api_key=config.get("api_key") or kwargs.get("api_key"),
@@ -251,6 +273,6 @@ def create_llm_client(
     else:
         raise ValueError(
             f"Unknown backend: {backend}. "
-            "Must be one of: openai, huggingface, gpt5-nano, qwen3-4b, qwen3-32b, gpt-5-mini"
+            "Must be one of: openai, huggingface, gpt5-nano, gpt5-mini, qwen3-4b, qwen3-32b, deepseek, deepseek-v3.2"
         )
 

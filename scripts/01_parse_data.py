@@ -12,7 +12,7 @@ from src.data.parser import preprocess_for_lcot2tree, save_preprocessed_data
 from src.data.lcot2tree_wrapper import run_lcot2tree_pipeline
 
 
-def load_filtered_samples(n: int, target_dataset: str, verbose: bool = True):
+def load_filtered_samples(n: int, target_dataset: str, verbose: bool = False):
     """
     Load n samples from SYNTHETIC-1 dataset filtered by dataset name.
     
@@ -33,32 +33,35 @@ def load_filtered_samples(n: int, target_dataset: str, verbose: bool = True):
     
     sample_data = []
     count = 0
+    bad_sources = ["synthetic_math", "synthetic_amc"]
+    good_sources = ["orca_math"]  # amc_aime, olymiads, orca_math 
     
     if verbose:
-        print(f"Loading {n} samples from: {target_dataset}")
+        print(f"Loading {n} samples from: {good_sources}")
         print("Searching through dataset...\n")
     
     for i, example in enumerate(dataset):
         # Check if this example is from the target dataset
-        if example.get("hf_dataset_name") == target_dataset:
-            sample_data.append(example)
-            count += 1
-            
-            if verbose:
-                print(f"\n{'='*80}")
-                print(f"Match #{count} (overall row {i}):")
-                print(f"{'='*80}")
-                for key, value in example.items():
-                    print(f"\n{key}:")
-                    # Truncate long values for readability
-                    if isinstance(value, str) and len(value) > 500:
-                        print(f"{value[:500]}... [truncated]")
-                    else:
-                        print(value)
-            
-            # Stop after finding n matches
-            if count >= n:
-                break
+        if example.get("source") not in good_sources:
+            continue
+        sample_data.append(example)
+        count += 1
+        
+        if verbose:
+            print(f"\n{'='*80}")
+            print(f"Match #{count} (overall row {i}):")
+            print(f"{'='*80}")
+            for key, value in example.items():
+                print(f"\n{key}:")
+                # Truncate long values for readability
+                if isinstance(value, str) and len(value) > 500:
+                    print(f"{value[:500]}... [truncated]")
+                else:
+                    print(value)
+        
+        # Stop after finding n matches
+        if count >= n:
+            break
         
         # Progress update every 1000 rows
         if verbose and (i + 1) % 1000 == 0:
@@ -80,7 +83,9 @@ def test_lcot2tree_pipeline(
     model_backend: str = "gpt5-nano",
     output_dir: str = "./data/processed/lcot2tree_test",
     config_path: str = "./config.json",
-    verbose: bool = True
+    use_async: bool = False,
+    batch_size: int = 10,
+    verbose: bool = False
 ):
     """
     Test the complete LCoT2Tree pipeline with a small sample of data.
@@ -91,6 +96,8 @@ def test_lcot2tree_pipeline(
         model_backend: LLM backend to use ("gpt5-nano", "qwen3-4b", "qwen3-32b")
         output_dir: Output directory for results
         config_path: Path to config.json with API keys
+        use_async: Whether to use async batch processing
+        batch_size: Batch size for async processing (default: 10)
         verbose: Whether to print progress
     
     Returns:
@@ -139,7 +146,11 @@ def test_lcot2tree_pipeline(
     
     model_config = config.get(model_backend, {})
     print(f"✓ Using backend: {model_backend}")
-    print(f"  Model: {model_config.get('model_id', 'default')}\n")
+    print(f"  Model: {model_config.get('model_id', 'default')}")
+    print(f"  Mode: {'Async batched' if use_async else 'Sync parallel'}")
+    if use_async:
+        print(f"  Batch size: {batch_size}")
+    print()
     
     # Step 4: Run LCoT2Tree pipeline
     print("Step 4: Running LCoT2Tree pipeline...")
@@ -151,7 +162,9 @@ def test_lcot2tree_pipeline(
             output_dir=output_dir,
             model_backend=model_backend,
             config=model_config,
-            max_workers=config.get("lcot2tree", {}).get("max_workers", 10)
+            max_workers=config.get("lcot2tree", {}).get("max_workers", 10),
+            use_async=use_async,
+            batch_size=batch_size
         )
         
         print(f"\n✓ Pipeline complete! Processed {len(results)} samples")
@@ -200,7 +213,7 @@ def main():
     )
     parser.add_argument(
         "--backend", type=str, default="gpt5-nano",
-        choices=["gpt5-nano", "qwen3-4b", "qwen3-32b", "gpt5-mini"],
+        choices=["gpt5-nano", "gpt5-mini", "qwen3-4b", "qwen3-32b", "deepseek", "deepseek-v3.2"],
         help="LLM backend to use (default: gpt5-nano)"
     )
     parser.add_argument(
@@ -212,6 +225,18 @@ def main():
         "--config", type=str, default="./config.json",
         help="Path to config.json"
     )
+    parser.add_argument(
+        "--async", dest="use_async", action="store_true",
+        help="Use async batch processing (default: False)"
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=10,
+        help="Batch size for async processing (default: 10)"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true",
+        help="Enable verbose output (default: False)"
+    )
     
     args = parser.parse_args()
     
@@ -221,7 +246,9 @@ def main():
         model_backend=args.backend,
         output_dir=args.output_dir,
         config_path=args.config,
-        verbose=True
+        use_async=args.use_async,
+        batch_size=args.batch_size,
+        verbose=args.verbose
     )
 
 

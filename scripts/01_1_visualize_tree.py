@@ -149,6 +149,9 @@ def visualize_tree(tree_dict: Dict[str, Any], item_data: Dict[str, Any],
         for node in graph.nodes():
             thought_num = thought_nums.get(node, 0)
             thought_text = thoughts.get(str(thought_num), "")
+            # Sanitize LaTeX characters that matplotlib might try to parse
+            # Replace backslashes to prevent LaTeX parsing errors
+            thought_text = thought_text.replace('\\', '/')
             # Truncate long thoughts
             if len(thought_text) > 30:
                 thought_text = thought_text[:30] + "..."
@@ -199,6 +202,8 @@ def visualize_tree(tree_dict: Dict[str, Any], item_data: Dict[str, Any],
     # Add prompt as text box if available
     if 'full_prompt' in item_data:
         prompt_text = item_data['full_prompt']
+        # Sanitize LaTeX characters
+        prompt_text = prompt_text.replace('\\', '/')
         if len(prompt_text) > 150:
             prompt_text = prompt_text[:150] + "..."
         ax.text(
@@ -210,7 +215,13 @@ def visualize_tree(tree_dict: Dict[str, Any], item_data: Dict[str, Any],
         )
     
     ax.axis('off')
-    plt.tight_layout()
+    
+    # Use tight_layout with error handling
+    try:
+        plt.tight_layout()
+    except Exception as e:
+        print(f"Warning: tight_layout failed for {item_data.get('tag', 'unknown')}: {e}")
+        # Continue without tight_layout
     
     # Save figure
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -270,9 +281,9 @@ def visualize_all_trees(input_path: str, output_dir: str, max_trees: int = None,
                 show_thoughts=show_thoughts
             )
         except Exception as e:
-            print(f"Error visualizing tree {tag}: {e}")
-            import traceback
-            traceback.print_exc()
+            print(f"Error visualizing tree {tag}: {str(e)[:100]}")
+            # Skip traceback for cleaner output, just continue with next tree
+            continue
     
     print(f"\n{'='*80}")
     print(f"Visualization complete! Images saved to: {output_dir}")

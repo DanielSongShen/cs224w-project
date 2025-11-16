@@ -3,6 +3,8 @@ import os
 import sys
 import json
 import re
+import time
+import asyncio
 import concurrent.futures
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -66,7 +68,9 @@ class LCoT2TreePipeline:
         self,
         llm_client: LLMClient,
         output_dir: str,
-        max_workers: int = 50
+        max_workers: int = 50,
+        use_async: bool = False,
+        batch_size: int = 10
     ):
         """
         Initialize LCoT2Tree pipeline.
@@ -74,12 +78,16 @@ class LCoT2TreePipeline:
         Args:
             llm_client: LLM client for API calls
             output_dir: Directory to store intermediate and final outputs
-            max_workers: Number of parallel workers for LLM calls
+            max_workers: Number of parallel workers for LLM calls (sync mode)
+            use_async: Whether to use async batch processing
+            batch_size: Batch size for async processing
         """
         self.llm_client = llm_client
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.max_workers = max_workers
+        self.use_async = use_async
+        self.batch_size = batch_size
     
     def split_text(self, text: str, split_words: List[str]) -> List[str]:
         """Split text into parts based on split words"""
@@ -113,6 +121,7 @@ class LCoT2TreePipeline:
             List of items with added 'thoughts_list' field
         """
         print("\n=== Step 1: Splitting thoughts ===")
+        start_time = time.time()
         results = []
         
         for item in input_data:
@@ -139,7 +148,10 @@ class LCoT2TreePipeline:
         # Save intermediate result
         output_path = self.output_dir / "process1.json"
         self._save_jsonl(results, output_path)
+        
+        elapsed = time.time() - start_time
         print(f"Saved {len(results)} items to {output_path}")
+        print(f"⏱️  Step 1 completed in {elapsed:.2f} seconds")
         
         return results
     
@@ -154,32 +166,34 @@ class LCoT2TreePipeline:
             Items with added 'reasoning_sketch' field
         """
         print("\n=== Step 2: Extracting reasoning sketch ===")
+        start_time = time.time()
         
         prompt_template = """Analyze the following reasoning text and extract a strictly ordered, atomic sequence of key reasoning steps. Focus on extracting the validated, logically essential progression of thoughts while excluding backtracking, rechecks, or redundant details.
 
-Reasoning text: 
-<reasoning_text>
-{text}
-</reasoning_text>
+        Reasoning text: 
+        <reasoning_text>
+        {text}
+        </reasoning_text>
 
-Please read the entire text carefully and generate by following these rules:
-1. Find the key steps and the logical flow of reasoning.
-2. Each step must represent a single, indivisible logical action that directly advances the reasoning.
-3. Determine the correct version of the step, ignoring redundant information. A correct step should be able to push the reasoning logic forward and have no errors in itself.
-4. Do not skip steps. Do not merge steps. Use the original phrasing where possible.
-5. Do not include verification steps unless it introduces new constraints.
-6. Organize the steps into a coherent sequence of key reasoning steps and number it sequentially (1., 2., 3., ...).
-7. Maintain strict output format.
+        Please read the entire text carefully and generate by following these rules:
+        1. Find the key steps and the logical flow of reasoning.
+        2. Each step must represent a single, indivisible logical action that directly advances the reasoning.
+        3. Determine the correct version of the step, ignoring redundant information. A correct step should be able to push the reasoning logic forward and have no errors in itself.
+        4. Do not skip steps. Do not merge steps. Use the original phrasing where possible.
+        5. Do not include verification steps unless it introduces new constraints.
+        6. Organize the steps into a coherent sequence of key reasoning steps and number it sequentially (1., 2., 3., ...).
+        7. Maintain strict output format.
 
-Output format:
-<reasoning_process>
-Step 1. concise statement: Detail step
-Step 2. concise statement: Detail step
-Step 3. concise statement: Detail step
-</reasoning_process>
+        Output format:
+        <reasoning_process>
+        Step 1. [concise statement]: [Details]
+        Step 2. [concise statement]: [Details]
+        Step 3. [concise statement]: [Details]
+        ...
+        </reasoning_process>
 
-Please list the key reasoning steps of the provided text.
-"""
+        Please list the key reasoning steps of the provided text.
+        """
         
         def process_item(item):
             text = item["prediction"]
@@ -203,14 +217,21 @@ Please list the key reasoning steps of the provided text.
             
             return item
         
-        # Process in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            results = list(executor.map(process_item, input_data))
+        # Process in parallel (sync or async)
+        if self.use_async:
+            results = asyncio.run(self._process_batch_async(input_data, process_item))
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                results = list(executor.map(process_item, input_data))
         
         # Save
         output_path = self.output_dir / "process2.json"
         self._save_jsonl(results, output_path)
+        
+        elapsed = time.time() - start_time
+        total_api_calls = len(results)
         print(f"Saved {len(results)} items to {output_path}")
+        print(f"⏱️  Step 2 completed in {elapsed:.2f} seconds")
         
         return results
     
@@ -225,47 +246,37 @@ Please list the key reasoning steps of the provided text.
             Items with added 'assigned_step' field
         """
         print("\n=== Step 3: Assigning thoughts to steps ===")
+        start_time = time.time()
         
-        prompt_template = """Your task is to match each reasoning thought from List B to corresponding step number(s) in the List A. Follow the following process:
+        # System message (cacheable instructions)
+        system_message = """Your task is to match each reasoning thought from List B to corresponding step number(s) in List A. Follow the following process:
 
-1. FIRST UNDERSTAND LIST B:
-   - For each thought in List B, identify if it describes some SPECIFIC CALCULATION PROCESSes (mathematical operation, logical transformation, or data manipulation)
-   - Ignore the describation that only state conclusions, concepts without showing the actual processing detail
+        1. FIRST UNDERSTAND LIST B:
+        - For each thought in List B, identify if it describes some SPECIFIC CALCULATION PROCESSes (mathematical operation, logical transformation, or data manipulation)
+        - Ignore the descriptions that only state conclusions, concepts without showing the actual processing detail
 
-2. THEN MATCH TO LIST A:
-   - For each thought from List B, find all steps in List A that:
-     * Show the same underlying calculation (even with different numbers/words)
-     * Represent the partial or same reasoning process
-   - Ignore superficial wording differences - focus on logical equivalence
+        2. THEN MATCH TO LIST A:
+        - For each thought from List B, find all steps in List A that:
+            * Show the same underlying calculation (even with different numbers/words)
+            * Represent the partial or same reasoning process
+        - Ignore superficial wording differences - focus on logical equivalence
 
-3. OUTPUT REQUIREMENTS:
-   - Return ALL plausible matches where computational processes align
-   - Never return empty arrays (except for thought B0 if needed)
-   - Multiple matches are encouraged when justified
-   - Maintain strict JSON format
+        3. OUTPUT REQUIREMENTS:
+        - Return ALL plausible matches where computational processes align
+        - Never return empty arrays (except for thought B0 if needed)
+        - Multiple matches are encouraged when justified
+        - Maintain strict JSON format
 
-Input:
-- List A (Detailed Steps): 
-<list_a>
-{reasoning_step}
-</list_a>
+        Output Format (strict JSON):
+        ```json
+        {{
+        "B0": ["A1"],
+        "B1": ["A3"],
+        "B2": ["A1", "A4"],
+        ...
+        }}```
 
-- List B (Reasoning Thoughts): 
-<list_b>
-{thoughts}
-</list_b>
-
-Output Format (strict JSON):
-```json
-{{
-  "B0": ["A1"],
-  "B1": ["A3"],
-  "B2": ["A1", "A4"],
-  ...
-}}```
-
-Please match the reasoning thoughts in List B to step in the List A.
-"""
+        Please match the reasoning thoughts in List B to steps in List A."""
         
         def extract_reasoning_dict(text):
             """Extract reasoning steps from sketch text"""
@@ -321,11 +332,10 @@ Please match the reasoning thoughts in List B to step in the List A.
             reasoning_sketch = extract_reasoning_dict(item["reasoning_sketch"])
             reasoning_text = json.dumps(reasoning_sketch, ensure_ascii=False)
             
-            # Process thoughts in chunks
+            # First pass: identify all chunks to process
+            chunks_to_process = []
             new_dict = {}
             thought_num = len(thought_list)
-            
-            all_assignments = {}
             
             for i in range(thought_num):
                 new_dict[i] = thought_list[str(i)]
@@ -333,36 +343,63 @@ Please match the reasoning thoughts in List B to step in the List A.
                 
                 # Process when chunk is large enough or at end
                 if len(thought_seg.split(" ")) > 600 or i == thought_num - 1:
-                    prompt = prompt_template.format(
-                        reasoning_step=reasoning_text,
-                        thoughts=thought_seg
-                    )
-                    
-                    try:
-                        response, in_tokens, out_tokens = self.llm_client.generate(prompt)
-                        assignments = extract_and_parse_json(response)
-                        
-                        if assignments:
-                            all_assignments.update(assignments)
-                        
-                        item["in_token_cost"] = item.get("in_token_cost", 0) + in_tokens
-                        item["out_token_cost"] = item.get("out_token_cost", 0) + out_tokens
-                    except Exception as e:
-                        print(f"Error assigning steps for {item['tag']}: {e}")
-                    
+                    # Create user message with variable data
+                    user_content = f"""- List A (Detailed Steps): 
+                    <list_a>
+                    {reasoning_text}
+                    </list_a>
+
+                    - List B (Reasoning Thoughts): 
+                    <list_b>
+                    {thought_seg}
+                    </list_b>"""
+                    chunks_to_process.append(user_content)
                     new_dict = {}
+            
+            # Second pass: process all chunks in parallel
+            def process_single_chunk(user_content):
+                try:
+                    messages = [
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": user_content}
+                    ]
+                    response, in_tokens, out_tokens = self.llm_client.generate(messages=messages)
+                    assignments = extract_and_parse_json(response)
+                    return assignments if assignments else {}, in_tokens, out_tokens
+                except Exception as e:
+                    print(f"Error processing chunk for {item['tag']}: {e}")
+                    return {}, 0, 0
+            
+            # Execute all chunks in parallel
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(chunks_to_process), 10)) as executor:
+                chunk_results = list(executor.map(process_single_chunk, chunks_to_process))
+            
+            # Aggregate all results
+            all_assignments = {}
+            for assignments, in_tokens, out_tokens in chunk_results:
+                all_assignments.update(assignments)
+                item["in_token_cost"] = item.get("in_token_cost", 0) + in_tokens
+                item["out_token_cost"] = item.get("out_token_cost", 0) + out_tokens
             
             item["assigned_step"] = all_assignments
             return item
         
-        # Process in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            results = list(executor.map(process_item, input_data))
+        # Process in parallel (sync or async)
+        if self.use_async:
+            results = asyncio.run(self._process_batch_async(input_data, process_item))
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                results = list(executor.map(process_item, input_data))
         
         # Save
         output_path = self.output_dir / "process3.json"
         self._save_jsonl(results, output_path)
+        
+        elapsed = time.time() - start_time
+        # Estimate API calls (1-3 per sample, typically 2)
+        est_api_calls = len(results) * 2
         print(f"Saved {len(results)} items to {output_path}")
+        print(f"⏱️  Step 3 completed in {elapsed:.2f} seconds")
         
         return results
     
@@ -377,24 +414,19 @@ Please match the reasoning thoughts in List B to step in the List A.
             Items with added 'thoughts_function' field
         """
         print("\n=== Step 4: Assigning thought functions ===")
+        start_time = time.time()
         
-        prompt_template = """Your task is to classify Text2's purpose relative to Text1 using these categories:
+        # System message (cacheable instructions)
+        system_message = """Your task is to classify Text2's purpose relative to Text1 using these categories:
 
-Categories:
-1. Continuous Logic - Direct continuation/extension of Text1's reasoning flow
-2. Exploration - Introduces parallel/unrelated concepts from Text1, alternative reasoning paths, or new topics
-3. Backtracking - Revises, corrects, or adjusts previous step
-4. Validation - Provides supporting evidence, logical justification, or examples for Text1's claims
+        Categories:
+        1. Continuous Logic - Direct continuation/extension of Text1's reasoning flow
+        2. Exploration - Introduces parallel/unrelated concepts from Text1, alternative reasoning paths, or new topics
+        3. Backtracking - Revises, corrects, or adjusts previous step
+        4. Validation - Provides supporting evidence, logical justification, or examples for Text1's claims
 
-Input:
-{{
-  "Text1": "{TEXT1}",
-  "Text2": "{TEXT2}"
-}}
-
-Output Format:
-Return only JSON format ```json{{"Category": "Name of Category"}}```
-"""
+        Output Format:
+        Return only JSON format ```json{{"Category": "Name of Category"}}```"""
         
         def extract_and_parse_json(text):
             """Extract and parse JSON from response"""
@@ -437,21 +469,23 @@ Return only JSON format ```json{{"Category": "Name of Category"}}```
             # Initialize function assignments
             item["thoughts_function"] = {0: 0, 1: 1}
             
-            last_result = 0
-            last_context = ""
-            
-            # Classify each thought
+            # Prepare all prompts for parallel processing
+            prompts_to_process = []
             for i in range(1, len(thoughts) - 1):
-                if last_result == 0 or last_result == 1:
-                    text1 = last_context + thoughts[i]
-                else:
-                    text1 = thoughts[i]
+                text1 = thoughts[i]
                 text2 = thoughts[i + 1]
-                
-                prompt = prompt_template.format(TEXT1=text1, TEXT2=text2)
-                
+                user_content = f'{{"Text1": "{text1}", "Text2": "{text2}"}}'
+                prompts_to_process.append((i + 1, user_content))  # Store index and user content
+            
+            # Process all prompts in parallel
+            def classify_single(idx_user_content):
+                idx, user_content = idx_user_content
                 try:
-                    response, in_tokens, out_tokens = self.llm_client.generate(prompt)
+                    messages = [
+                        {"role": "system", "content": system_message},
+                        {"role": "user", "content": user_content}
+                    ]
+                    response, in_tokens, out_tokens = self.llm_client.generate(messages=messages)
                     parsed = extract_and_parse_json(response)
                     
                     if parsed and "Category" in parsed:
@@ -466,27 +500,41 @@ Return only JSON format ```json{{"Category": "Name of Category"}}```
                     else:
                         result = 1  # Default to Continuous Logic
                     
-                    item["in_token_cost"] = item.get("in_token_cost", 0) + in_tokens
-                    item["out_token_cost"] = item.get("out_token_cost", 0) + out_tokens
+                    return idx, result, in_tokens, out_tokens
                     
                 except Exception as e:
-                    print(f"Error classifying thought for {item['tag']}: {e}")
-                    result = 1
+                    print(f"Error classifying thought {idx} for {item['tag']}: {e}")
+                    return idx, 1, 0, 0
+            
+            # Execute in parallel using ThreadPoolExecutor for this item
+            if prompts_to_process:  # Only process if there are prompts
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(prompts_to_process), 10)) as executor:
+                    results = list(executor.map(classify_single, prompts_to_process))
                 
-                item["thoughts_function"][i + 1] = result
-                last_context = text1
-                last_result = result
+                # Aggregate results
+                for idx, result, in_tokens, out_tokens in results:
+                    item["thoughts_function"][idx] = result
+                    item["in_token_cost"] = item.get("in_token_cost", 0) + in_tokens
+                    item["out_token_cost"] = item.get("out_token_cost", 0) + out_tokens
             
             return item
         
-        # Process in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            results = list(executor.map(process_item, input_data))
+        # Process in parallel (sync or async)
+        if self.use_async:
+            results = asyncio.run(self._process_batch_async(input_data, process_item))
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                results = list(executor.map(process_item, input_data))
         
         # Save
         output_path = self.output_dir / "process4.json"
         self._save_jsonl(results, output_path)
+        
+        elapsed = time.time() - start_time
+        # Calculate actual API calls (T-2 per sample where T is num thoughts)
+        total_api_calls = sum(len(item.get("thoughts_list", {})) - 2 for item in results if len(item.get("thoughts_list", {})) > 2)
         print(f"Saved {len(results)} items to {output_path}")
+        print(f"⏱️  Step 4 completed in {elapsed:.2f} seconds")
         
         return results
     
@@ -501,6 +549,7 @@ Return only JSON format ```json{{"Category": "Name of Category"}}```
             Items with added 'cot_tree' field
         """
         print("\n=== Step 5: Building trees ===")
+        start_time = time.time()
         
         def transform_dict(input_dict):
             """Transform assigned_step dict to clean integer format"""
@@ -562,7 +611,10 @@ Return only JSON format ```json{{"Category": "Name of Category"}}```
         # Save
         output_path = self.output_dir / "final.json"
         self._save_jsonl(results, output_path)
+        
+        elapsed = time.time() - start_time
         print(f"Saved {len(results)} trees to {output_path}")
+        print(f"⏱️  Step 5 completed in {elapsed:.2f} seconds")
         
         return results
     
@@ -582,6 +634,8 @@ Return only JSON format ```json{{"Category": "Name of Category"}}```
         print(f"Output directory: {self.output_dir}")
         print(f"{'='*80}")
         
+        pipeline_start = time.time()
+        
         # Step 1: Split thoughts
         data = self.step1_split_thoughts(input_data)
         
@@ -597,11 +651,49 @@ Return only JSON format ```json{{"Category": "Name of Category"}}```
         # Step 5: Build trees
         data = self.step5_build_tree(data)
         
+        total_elapsed = time.time() - pipeline_start
+        
         print(f"\n{'='*80}")
         print(f"Pipeline complete! Final output: {self.output_dir / 'final.json'}")
+        print(f"⏱️  Total pipeline time: {total_elapsed:.2f} seconds ({total_elapsed/60:.2f} minutes)")
         print(f"{'='*80}\n")
         
         return data
+    
+    async def _process_batch_async(self, items: List[Any], process_func) -> List[Any]:
+        """
+        Process items in async batches using thread-based concurrency.
+        
+        Uses asyncio.to_thread() to run synchronous LLM calls concurrently
+        in batches. This provides good I/O concurrency for API calls while
+        maintaining simple synchronous code in process_func.
+        
+        Args:
+            items: List of items to process
+            process_func: Synchronous function to process each item
+        
+        Returns:
+            List of processed results
+        """
+        results = []
+        total = len(items)
+        
+        for i in range(0, total, self.batch_size):
+            batch = items[i:i + self.batch_size]
+            batch_num = i // self.batch_size + 1
+            total_batches = (total + self.batch_size - 1) // self.batch_size
+            
+            print(f"Processing batch {batch_num}/{total_batches} ({len(batch)} items)...")
+            
+            # Process batch concurrently - run sync process_func in thread pool
+            batch_results = await asyncio.gather(*[
+                asyncio.to_thread(process_func, item)
+                for item in batch
+            ])
+            
+            results.extend(batch_results)
+        
+        return results
     
     def _save_jsonl(self, data: List[Dict[str, Any]], path: Path):
         """Save data as JSONL"""
@@ -617,6 +709,8 @@ def run_lcot2tree_pipeline(
     model_name: Optional[str] = None,
     config: Optional[Dict[str, Any]] = None,
     max_workers: int = 50,
+    use_async: bool = False,
+    batch_size: int = 10,
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
@@ -628,7 +722,9 @@ def run_lcot2tree_pipeline(
         model_backend: LLM backend ("gpt5-nano", "qwen3-4b", "qwen3-32b", "openai", "huggingface")
         model_name: Explicit model name (optional)
         config: Configuration dict for LLM (optional)
-        max_workers: Number of parallel workers
+        max_workers: Number of parallel workers (for sync mode)
+        use_async: Whether to use async batch processing
+        batch_size: Batch size for async processing (default: 10)
         **kwargs: Additional arguments for LLM client
     
     Returns:
@@ -646,7 +742,9 @@ def run_lcot2tree_pipeline(
     pipeline = LCoT2TreePipeline(
         llm_client=llm_client,
         output_dir=output_dir,
-        max_workers=max_workers
+        max_workers=max_workers,
+        use_async=use_async,
+        batch_size=batch_size
     )
     
     return pipeline.run_full_pipeline(reasoning_traces)
