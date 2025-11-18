@@ -1,0 +1,5 @@
+datasets>=4.3.0
+torch>=2.9.0
+numpy>=2.3.4
+networkx>=3.5
+matplotlib>=3.10.7

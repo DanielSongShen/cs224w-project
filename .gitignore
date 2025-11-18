@@ -230,3 +230,5 @@ notebooks/.ipynb_checkpoints/
 wandb/
 runs/
 lightning_logs/
+
+config.json
