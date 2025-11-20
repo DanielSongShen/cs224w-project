@@ -110,6 +110,114 @@ def preprocess_for_lcot2tree(
     return preprocessed
 
 
+def preprocess_openmath_reasoning_for_lcot2tree(
+    samples: List[Dict[str, Any]],
+    dataset_name: str = "openmath",
+    min_pass_rate: Optional[float] = None
+) -> List[Dict[str, Any]]:
+    """
+    Preprocess OpenMathReasoning samples into LCoT2Tree format.
+    
+    OpenMathReasoning Schema:
+        - problem: the math problem/question
+        - generated_solution: the model's reasoning trace (CoT)
+        - expected_answer: the ground truth answer
+        - problem_type: type of problem (e.g., "math_word_problem")
+        - generation_model: model used to generate solution
+        - pass_rate_72b_tir: accuracy metric (float 0.0-1.0)
+        - inference_mode: generation mode (e.g., "cot", "tir")
+        - other metadata fields
+    
+    Args:
+        samples: List of samples from OpenMathReasoning dataset
+        dataset_name: Name prefix for tags (default: "openmath")
+        min_pass_rate: Optional minimum pass rate threshold for filtering
+    
+    Returns:
+        List of preprocessed examples in LCoT2Tree format with fields:
+        - tag: unique identifier
+        - prediction: reasoning text (from generated_solution)
+        - gold: list of ground truth answers (from expected_answer)
+        - score: correctness score ("0" or "1", from pass_rate_72b_tir)
+        - full_prompt: the original problem
+        - problem_type, generation_model, inference_mode: preserved metadata
+    """
+    preprocessed = []
+    
+    for idx, sample in enumerate(samples):
+        # Apply pass rate filter if specified
+        if min_pass_rate is not None:
+            pass_rate = sample.get("pass_rate_72b_tir", 0.0)
+            if pass_rate < min_pass_rate:
+                continue
+        
+        # Extract reasoning text from generated_solution
+        reasoning_text = sample.get("generated_solution", "")
+        
+        # Handle if generated_solution is not a string (edge case)
+        if not isinstance(reasoning_text, str):
+            reasoning_text = str(reasoning_text)
+        
+        # Wrap in <think> tags if not already wrapped
+        if reasoning_text.strip() and not reasoning_text.startswith("<think>"):
+            reasoning_text = f"<think>{reasoning_text}</think>"
+        
+        # Extract ground truth from expected_answer
+        ground_truth = sample.get("expected_answer", "")
+        
+        # Ensure ground_truth is a list
+        if ground_truth is None or ground_truth == "":
+            gold_list = [""]
+        elif isinstance(ground_truth, list):
+            gold_list = [str(g) for g in ground_truth]
+        else:
+            gold_list = [str(ground_truth)]
+        
+        # Extract correctness score from pass_rate_72b_tir
+        pass_rate = sample.get("pass_rate_72b_tir", 0.0)
+        
+        # Convert to binary score: >0.5 = correct, <=0.5 = incorrect
+        if isinstance(pass_rate, (int, float)):
+            score = "1" if pass_rate > 0.5 else "0"
+        elif isinstance(pass_rate, str):
+            try:
+                score = "1" if float(pass_rate) > 0.5 else "0"
+            except (ValueError, TypeError):
+                score = "0"
+        else:
+            score = "0"
+        
+        # Create unique tag
+        tag = f"{dataset_name}_{idx:06d}"
+        
+        # Build preprocessed item
+        item = {
+            "tag": tag,
+            "prediction": reasoning_text,
+            "gold": gold_list,
+            "score": score,
+            "id": idx,
+        }
+        
+        # Include problem as full_prompt
+        if "problem" in sample:
+            item["full_prompt"] = sample["problem"]
+        
+        # Preserve important metadata from OpenMathReasoning
+        if "problem_type" in sample:
+            item["problem_type"] = sample["problem_type"]
+        if "generation_model" in sample:
+            item["generation_model"] = sample["generation_model"]
+        if "inference_mode" in sample:
+            item["inference_mode"] = sample["inference_mode"]
+        if "pass_rate_72b_tir" in sample:
+            item["pass_rate_72b_tir"] = sample["pass_rate_72b_tir"]
+        
+        preprocessed.append(item)
+    
+    return preprocessed
+
+
 def save_preprocessed_data(
     preprocessed: List[Dict[str, Any]],
     output_path: str

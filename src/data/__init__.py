@@ -2,6 +2,7 @@
 
 from .parser import (
     preprocess_for_lcot2tree,
+    preprocess_openmath_reasoning_for_lcot2tree,
     save_preprocessed_data,
     load_preprocessed_data
 )
@@ -21,6 +22,7 @@ from .lcot2tree_wrapper import (
 __all__ = [
     # Parser functions
     'preprocess_for_lcot2tree',
+    'preprocess_openmath_reasoning_for_lcot2tree',
     'save_preprocessed_data',
     'load_preprocessed_data',
     
