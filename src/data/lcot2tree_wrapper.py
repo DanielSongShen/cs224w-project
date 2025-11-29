@@ -48,6 +48,10 @@ class LCoT2TreePipeline:
         "Let's confirm", "Let's check", "Another example", "But let's",
         "No:", "no:"
     ]
+
+    # SPLIT_WORDS = [
+    #     "\n\n"
+    # ]
     
     @staticmethod
     def normalize_thought_keys(thought_list: Dict[Any, Any]) -> Dict[str, Any]:
