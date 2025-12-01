@@ -19,6 +19,17 @@ from .lcot2tree_wrapper import (
     run_lcot2tree_pipeline
 )
 
+from .dataset import (
+    ReasoningTraceDataset,
+    PreProcessedDataset,
+    load_processed_dataset,
+    convert_json_to_hetero_graph,
+    load_jsonl_to_graphs,
+    create_train_val_test_split,
+    get_dataloaders,
+    CATEGORY_TO_EDGE_TYPE,
+)
+
 __all__ = [
     # Parser functions
     'preprocess_for_lcot2tree',
@@ -35,4 +46,14 @@ __all__ = [
     # Pipeline
     'LCoT2TreePipeline',
     'run_lcot2tree_pipeline',
+    
+    # Dataset classes and utilities
+    'ReasoningTraceDataset',
+    'PreProcessedDataset',
+    'load_processed_dataset',
+    'convert_json_to_hetero_graph',
+    'load_jsonl_to_graphs',
+    'create_train_val_test_split',
+    'get_dataloaders',
+    'CATEGORY_TO_EDGE_TYPE',
 ]

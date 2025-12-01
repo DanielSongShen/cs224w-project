@@ -7,8 +7,186 @@ from typing import Dict, List, Tuple, Optional, Any, Callable, Union
 from collections import defaultdict
 
 import torch
-from torch_geometric.data import HeteroData, InMemoryDataset, download_url
+from torch_geometric.data import HeteroData, InMemoryDataset, download_url, Dataset
 from torch_geometric.loader import DataLoader
+
+
+def load_processed_dataset(pt_filepath: str) -> List[HeteroData]:
+    """
+    Load a pre-processed dataset directly from a .pt file.
+    
+    This is useful when you already have processed graph data saved by
+    PyTorch Geometric's InMemoryDataset and want to load it directly
+    without going through the full dataset pipeline.
+    
+    Args:
+        pt_filepath: Path to the .pt file containing processed graphs
+        
+    Returns:
+        List of HeteroData objects
+        
+    Example:
+        >>> graphs = load_processed_dataset('./data/processed/deepseek/amc-aime/undirected/processed/final_regraded_with_rev.pt')
+        >>> len(graphs)
+        1000
+        >>> graphs[0]
+        HeteroData(...)
+    """
+    # PyG InMemoryDataset saves as (data_dict, slices_dict, data_cls)
+    loaded = torch.load(pt_filepath, weights_only=False)
+    if isinstance(loaded, tuple) and len(loaded) == 3:
+        data, slices, _ = loaded
+    elif isinstance(loaded, tuple) and len(loaded) == 2:
+        data, slices = loaded
+    else:
+        raise ValueError(f"Unexpected format in {pt_filepath}")
+    
+    # Reconstruct individual graphs from the collated data
+    graphs = []
+    num_graphs = len(slices['y']) - 1  # slices has one more element than number of graphs
+    
+    for idx in range(num_graphs):
+        graph = _reconstruct_graph(data, slices, idx)
+        graphs.append(graph)
+    
+    return graphs
+
+
+def _reconstruct_graph(data: Dict, slices: Dict, idx: int) -> HeteroData:
+    """Reconstruct a single HeteroData graph from collated data and slices."""
+    graph = HeteroData()
+    
+    for key, value in data.items():
+        if key == '_global_store':
+            # Handle global attributes (like y)
+            if isinstance(value, dict):
+                for attr, attr_value in value.items():
+                    if attr in slices.get('_global_store', {}):
+                        start = slices['_global_store'][attr][idx].item()
+                        end = slices['_global_store'][attr][idx + 1].item()
+                        setattr(graph, attr, attr_value[start:end])
+                    elif attr == 'y' and 'y' in slices:
+                        start = slices['y'][idx].item()
+                        end = slices['y'][idx + 1].item()
+                        graph.y = attr_value[start:end]
+        elif isinstance(key, tuple) and len(key) == 3:
+            # Edge data (e.g., ('thought', 'continuous_logic', 'thought'))
+            if isinstance(value, dict) and 'edge_index' in value:
+                if key in slices and 'edge_index' in slices[key]:
+                    start = slices[key]['edge_index'][idx].item()
+                    end = slices[key]['edge_index'][idx + 1].item()
+                    graph[key].edge_index = value['edge_index'][:, start:end]
+            elif key in slices:
+                # Direct edge_index tensor
+                start = slices[key][idx].item()
+                end = slices[key][idx + 1].item()
+                graph[key].edge_index = value[:, start:end]
+        elif isinstance(key, str) and key not in ('y',):
+            # Node data (e.g., 'thought')
+            if isinstance(value, dict):
+                for attr, attr_value in value.items():
+                    if key in slices and attr in slices[key]:
+                        start = slices[key][attr][idx].item()
+                        end = slices[key][attr][idx + 1].item()
+                        if attr == 'num_nodes':
+                            graph[key].num_nodes = attr_value[idx].item()
+                        else:
+                            setattr(graph[key], attr, attr_value[start:end])
+    
+    # Handle 'y' at top level if present
+    if 'y' in data and not hasattr(graph, 'y'):
+        if 'y' in slices:
+            start = slices['y'][idx].item()
+            end = slices['y'][idx + 1].item()
+            graph.y = data['y'][start:end]
+    
+    return graph
+
+
+class PreProcessedDataset(Dataset):
+    """
+    Dataset wrapper for pre-processed .pt files.
+    
+    This provides a PyTorch Geometric Dataset interface for already-processed
+    graph data, enabling use with DataLoader and other PyG utilities.
+    
+    Args:
+        pt_filepath: Path to the .pt file containing processed graphs
+        transform: Optional transform to apply to each graph
+        
+    Example:
+        >>> dataset = PreProcessedDataset('./data/processed/deepseek/amc-aime/undirected/processed/final_regraded_with_rev.pt')
+        >>> len(dataset)
+        1000
+        >>> loader = DataLoader(dataset, batch_size=32)
+    """
+    
+    def __init__(
+        self,
+        pt_filepath: str,
+        transform: Optional[Callable] = None,
+    ):
+        self.pt_filepath = osp.abspath(pt_filepath)
+        super().__init__(root=None, transform=transform)
+        
+        # Load the collated data and slices
+        # PyG InMemoryDataset saves as (data_dict, slices_dict, data_cls)
+        loaded = torch.load(self.pt_filepath, weights_only=False)
+        if isinstance(loaded, tuple) and len(loaded) == 3:
+            self._data, self._slices, _ = loaded
+        elif isinstance(loaded, tuple) and len(loaded) == 2:
+            self._data, self._slices = loaded
+        else:
+            raise ValueError(f"Unexpected format in {pt_filepath}")
+        
+        # Determine number of graphs from slices
+        self._num_graphs = len(self._slices['y']) - 1
+    
+    def len(self) -> int:
+        return self._num_graphs
+    
+    def get(self, idx: int) -> HeteroData:
+        """Get a single graph by index."""
+        return _reconstruct_graph(self._data, self._slices, idx)
+    
+    def get_summary(self) -> Dict[str, Any]:
+        """Get summary statistics of the dataset."""
+        num_graphs = len(self)
+        
+        if num_graphs == 0:
+            return {"num_graphs": 0}
+        
+        # Collect statistics in a single pass
+        labels_list = []
+        num_nodes_list = []
+        edge_counts = defaultdict(list)
+        
+        for i in range(num_graphs):
+            data = self[i]
+            labels_list.append(data.y.item())
+            num_nodes_list.append(data["thought"].num_nodes if hasattr(data["thought"], "num_nodes") else data["thought"].x.shape[0])
+            for edge_type in data.edge_types:
+                edge_counts[edge_type].append(data[edge_type].edge_index.shape[1])
+        
+        num_positive = sum(labels_list)
+        num_negative = num_graphs - num_positive
+        
+        return {
+            "num_graphs": num_graphs,
+            "num_positive": num_positive,
+            "num_negative": num_negative,
+            "class_ratio": num_positive / num_graphs if num_graphs > 0 else 0,
+            "avg_nodes": sum(num_nodes_list) / num_graphs,
+            "min_nodes": min(num_nodes_list),
+            "max_nodes": max(num_nodes_list),
+            "edge_types": list(edge_counts.keys()),
+            "avg_edges_per_type": {
+                str(k): sum(v) / len(v) for k, v in edge_counts.items()
+            },
+        }
+    
+    def __repr__(self) -> str:
+        return f'{self.__class__.__name__}({len(self)} graphs, file={osp.basename(self.pt_filepath)})'
 
 
 # Edge type names corresponding to category values
@@ -326,7 +504,7 @@ class ReasoningTraceDataset(InMemoryDataset):
 
 
 def create_train_val_test_split(
-    dataset: ReasoningTraceDataset,
+    dataset: Union[ReasoningTraceDataset, PreProcessedDataset, Dataset],
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
     test_ratio: float = 0.1,
@@ -337,7 +515,7 @@ def create_train_val_test_split(
     Create train/val/test splits for the dataset.
     
     Args:
-        dataset: The ReasoningTraceDataset to split
+        dataset: The dataset to split (ReasoningTraceDataset, PreProcessedDataset, or similar)
         train_ratio: Fraction of data for training
         val_ratio: Fraction of data for validation
         test_ratio: Fraction of data for testing
@@ -407,7 +585,7 @@ def create_train_val_test_split(
 
 
 def get_dataloaders(
-    dataset: ReasoningTraceDataset,
+    dataset: Union[ReasoningTraceDataset, PreProcessedDataset, Dataset],
     batch_size: int = 32,
     train_ratio: float = 0.8,
     val_ratio: float = 0.1,
@@ -420,7 +598,7 @@ def get_dataloaders(
     Create DataLoaders for train/val/test splits.
     
     Args:
-        dataset: The ReasoningTraceDataset
+        dataset: The dataset (ReasoningTraceDataset, PreProcessedDataset, or similar)
         batch_size: Batch size for all loaders
         train_ratio: Fraction of data for training
         val_ratio: Fraction of data for validation  
@@ -436,9 +614,18 @@ def get_dataloaders(
         dataset, train_ratio, val_ratio, test_ratio, seed, stratify
     )
     
-    train_dataset = dataset[train_idx]
-    val_dataset = dataset[val_idx]
-    test_dataset = dataset[test_idx]
+    # Create subset datasets - handle both InMemoryDataset (supports list indexing)
+    # and regular Dataset (needs manual subsetting)
+    try:
+        # InMemoryDataset supports direct list indexing
+        train_dataset = dataset[train_idx]
+        val_dataset = dataset[val_idx]
+        test_dataset = dataset[test_idx]
+    except (TypeError, KeyError):
+        # For regular Dataset, create lists of graphs
+        train_dataset = [dataset[i] for i in train_idx]
+        val_dataset = [dataset[i] for i in val_idx]
+        test_dataset = [dataset[i] for i in test_idx]
     
     train_loader = DataLoader(
         train_dataset, 
