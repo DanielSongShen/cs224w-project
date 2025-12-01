@@ -1,0 +1,33 @@
+# gpt5-mini
+poetry run python3 scripts/01_parse_data.py --n_samples 1 --backend gpt5-mini --output_dir mini
+poetry run python3 scripts/01_1_visualize_tree.py --input_path mini/final.json -o mini -t
+
+# deepseek-v3.2
+poetry run python3 scripts/01_parse_data.py --n_samples 1 --backend deepseek-v3.2 --output_dir deepseek
+poetry run python3 scripts/01_1_visualize_tree.py --input_path deepseek/final.json -o deepseek/visualizations -t
+
+poetry run python3 scripts/01_parse_data.py --backend deepseek-v3.2 --async --n_samples 500 --output_dir ./data/processed/deepseek/amc-aime
+poetry run python scripts/continue_from_step.py --step 4 --input data/processed/deepseek/amc-aime/process3.json --output_dir data/processed/deepseek/amc-aime --backend deepseek-v3.2 --async --batch_size 10
+
+# Regrade
+poetry run python scripts/00_fix_labels.py --input data/processed/deepseek/orca-math/final.json --output data/processed/deepseek/orca-math/final_regraded.json
+
+# Generate graph dataset
+poetry run python src/data/dataset.py data/processed/deepseek/orca-math/final.json --root ./data/processed/deepseek/orca-math
+
+poetry run python src/data/dataset.py data/processed/deepseek/olympiads/final_regraded.json --root ./data/processed/deepseek/olympiads/directed --force-reload --no-reverse-edges
+poetry run python src/data/dataset.py data/processed/deepseek/orca-math/final_regraded.json --root ./data/processed/deepseek/orca-math/directed --force-reload --no-reverse-edges
+poetry run python src/data/dataset.py data/processed/deepseek/amc-aime/final_regraded.json --root ./data/processed/deepseek/amc-aime/directed --force-reload --no-reverse-edges
+poetry run python src/data/dataset.py data/processed/deepseek/combined/final_regraded.json --root ./data/processed/deepseek/combined/directed --force-reload --no-reverse-edges
+
+
+poetry run python src/data/dataset.py data/processed/deepseek/olympiads/final_regraded.json --root ./data/processed/deepseek/olympiads/undirected --force-reload
+poetry run python src/data/dataset.py data/processed/deepseek/orca-math/final_regraded.json --root ./data/processed/deepseek/orca-math/undirected --force-reload
+poetry run python src/data/dataset.py data/processed/deepseek/amc-aime/final_regraded.json --root ./data/processed/deepseek/amc-aime/undirected --force-reload
+poetry run python src/data/dataset.py data/processed/deepseek/combined/final_regraded.json --root ./data/processed/deepseek/combined/undirected --force-reload
+
+
+# Training
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined/undirected/final_regraded_with_rev.pt --output-dir ./outputs/models/hetero_gat --model-type hetero_gat
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined/undirected/final_regraded_with_rev.pt --output-dir ./outputs/models/simple_gin --model-type simple_gin
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined/undirected/final_regraded_with_rev.pt --output-dir ./outputs/models/hetero_gin --model-type hetero_gin
