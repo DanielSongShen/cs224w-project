@@ -13,7 +13,7 @@ from src.data.parser import (
     preprocess_openmath_reasoning_for_lcot2tree,
     save_preprocessed_data
 )
-from src.data.graph_builder import run_lcot2tree_pipeline
+from src.data.graph_builder import run_reasoning_pipeline
 
 
 def load_filtered_samples(n: int, target_dataset: str, verbose: bool = False):
@@ -157,20 +157,20 @@ def load_openmath_reasoning_samples(
     return sample_data
 
 
-def test_lcot2tree_pipeline(
+def test_reasoning_graph_pipeline(
     n_samples: int = 3,
     dataset_type: str = "SYNTHETIC-1",
     target_dataset: str = "PrimeIntellect/verifiable-math-problems",
     min_pass_rate: float = None,
     model_backend: str = "gpt5-nano",
-    output_dir: str = "./data/processed/lcot2tree_test",
+    output_dir: str = "./data/processed/reasoning_graph_test",
     config_path: str = "./config.json",
     use_async: bool = False,
     batch_size: int = 10,
     verbose: bool = False
 ):
     """
-    Test the complete LCoT2Tree pipeline with a small sample of data.
+    Test the complete reasoning graph pipeline with a small sample of data.
     
     Args:
         n_samples: Number of samples to process
@@ -185,10 +185,10 @@ def test_lcot2tree_pipeline(
         verbose: Whether to print progress
     
     Returns:
-        List of processed items with CoT trees
+        List of processed items with reasoning graphs
     """
     print(f"\n{'='*80}")
-    print("Testing LCoT2Tree Pipeline")
+    print("Testing Reasoning Graph Pipeline")
     print(f"{'='*80}\n")
     
     # Step 1: Load samples based on dataset type
@@ -215,8 +215,8 @@ def test_lcot2tree_pipeline(
     
     print(f"✓ Loaded {len(samples)} samples\n")
     
-    # Step 2: Preprocess for LCoT2Tree
-    print("Step 2: Preprocessing samples for LCoT2Tree format...")
+    # Step 2: Preprocess for graph pipeline
+    print("Step 2: Preprocessing samples for reasoning graph format...")
     
     if dataset_type == "SYNTHETIC-1":
         preprocessed = preprocess_for_lcot2tree(samples, dataset_name=dataset_name_prefix)
@@ -258,19 +258,20 @@ def test_lcot2tree_pipeline(
         print(f"  Batch size: {batch_size}")
     print()
     
-    # Step 4: Run LCoT2Tree pipeline
-    print("Step 4: Running LCoT2Tree pipeline...")
+    # Step 4: Run reasoning graph pipeline
+    print("Step 4: Running reasoning graph pipeline...")
     print("This may take several minutes depending on the LLM backend...\n")
     
     try:
-        results = run_lcot2tree_pipeline(
+        results = run_reasoning_pipeline(
             reasoning_traces=preprocessed,
             output_dir=output_dir,
             model_backend=model_backend,
             config=model_config,
-            max_workers=config.get("lcot2tree", {}).get("max_workers", 10),
+            max_workers=config.get("reasoning_graph", {}).get("max_workers", 10),
             use_async=use_async,
-            batch_size=batch_size
+            batch_size=batch_size,
+            debug=False
         )
         
         print(f"\n✓ Pipeline complete! Processed {len(results)} samples")
@@ -285,10 +286,10 @@ def test_lcot2tree_pipeline(
         print(f"  Output tokens: {total_out_tokens:,}")
         print(f"  Total tokens: {total_in_tokens + total_out_tokens:,}")
         
-        # Print sample tree
-        if verbose and len(results) > 0 and "cot_tree" in results[0]:
-            print("\nSample CoT tree structure:")
-            print(json.dumps(results[0]["cot_tree"], indent=2)[:500] + "... [truncated]")
+        # Print sample graph structure
+        if verbose and len(results) > 0 and "reasoning_graph" in results[0]:
+            print("\nSample reasoning graph structure:")
+            print(json.dumps(results[0]["reasoning_graph"], indent=2)[:500] + "... [truncated]")
         
         print(f"\n{'='*80}")
         print("Test completed successfully!")
@@ -307,7 +308,7 @@ def main():
     """Main entry point for testing"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Test LCoT2Tree pipeline")
+    parser = argparse.ArgumentParser(description="Test reasoning graph pipeline")
     parser.add_argument(
         "--n_samples", type=int, default=3,
         help="Number of samples to process (default: 3)"
@@ -329,11 +330,11 @@ def main():
     parser.add_argument(
         "--backend", type=str, default="deepseek-v3.2",
         choices=["gpt5-nano", "gpt5-mini", "qwen3-4b", "qwen3-32b", "deepseek", "deepseek-v3.2"],
-        help="LLM backend to use (default: gpt5-nano)"
+        help="LLM backend to use (default: deepseek-v3.2)"
     )
     parser.add_argument(
         "--output_dir", type=str,
-        default="./data/processed/lcot2tree_test",
+        default="./data/processed/reasoning_graph_test",
         help="Output directory"
     )
     parser.add_argument(
@@ -355,7 +356,7 @@ def main():
     
     args = parser.parse_args()
     
-    test_lcot2tree_pipeline(
+    test_reasoning_graph_pipeline(
         n_samples=args.n_samples,
         dataset_type=args.dataset,
         target_dataset=args.target_dataset,

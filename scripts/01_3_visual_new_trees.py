@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Visualize Chain-of-Thought graphs from LCoT2Tree output (Parent Selection Version).
+Visualize Chain-of-Thought graphs from reasoning pipeline output.
 
-Updated for parent selection approach with hierarchical tree layout.
+Updated for graph representation with hierarchical tree layout.
 COMPLETELY NON-RECURSIVE VERSION - Fixed all recursion depth issues.
 """
 
@@ -40,52 +40,68 @@ CATEGORY_NAMES = {
 }
 
 
-def tree_to_graph(tree_dict: Dict[str, Any], parent_id: str = None, graph: nx.DiGraph = None) -> nx.DiGraph:
+def graph_from_edge_list(reasoning_graph: Dict[str, Any]) -> nx.DiGraph:
     """
-    Convert tree dictionary to NetworkX directed graph ITERATIVELY.
+    Create NetworkX directed graph from edge list format.
     
     Args:
-        tree_dict: Tree node dictionary with value, level, cate, thought_list, children
-        parent_id: ID of parent node (for edge creation)
-        graph: Existing graph to add to (creates new if None)
+        reasoning_graph: Graph dict with 'nodes' and 'edges' fields
+            nodes: List of node IDs
+            edges: List of dicts with 'source', 'target', 'category'
     
     Returns:
-        NetworkX directed graph representing the tree/graph
+        NetworkX directed graph
     """
-    if graph is None:
-        graph = nx.DiGraph()
+    graph = nx.DiGraph()
     
-    # Use a stack to avoid recursion depth issues
-    # Stack items: (current_node_dict, parent_id_for_this_node)
-    stack = [(tree_dict, parent_id)]
-    
-    while stack:
-        curr, pid = stack.pop()
-        node_id = curr['value']
-        
-        thought_list = curr.get('thought_list', [])
-        thought_num = thought_list[0] if thought_list else 0
-        
-        # Add the node with subset attribute for multipartite_layout
+    # Add all nodes
+    nodes = reasoning_graph.get('nodes', [])
+    for node_id in nodes:
+        # Compute level based on shortest path from node 0 (root)
+        # We'll do this after adding all edges
         graph.add_node(
             node_id,
-            level=curr['level'],
-            category=curr.get('cate', 0),
-            thought_num=thought_num,
-            thought_list=thought_list,
-            subset=curr['level']  # 'subset' attribute is needed for multipartite_layout
+            thought_num=node_id,
+            thought_list=[node_id]
         )
+    
+    # Add all edges
+    edges = reasoning_graph.get('edges', [])
+    for edge in edges:
+        source = edge.get('source')
+        target = edge.get('target')
+        category = edge.get('category', 0)
         
-        # Add edge from parent
-        if pid is not None:
-            edge_category = curr.get('cate', 0)
-            graph.add_edge(pid, node_id, category=edge_category)
+        if source is not None and target is not None:
+            graph.add_edge(source, target, category=category)
+    
+    # Compute levels using BFS from root (node 0)
+    if 0 in graph:
+        levels = {0: 0}
+        queue = [0]
         
-        # Add children to stack
-        # (Reverse order so they pop in original order)
-        for child in reversed(curr.get('children', [])):
-            stack.append((child, node_id))
+        while queue:
+            node = queue.pop(0)
+            current_level = levels[node]
             
+            for child in graph.successors(node):
+                if child not in levels:
+                    levels[child] = current_level + 1
+                    queue.append(child)
+        
+        # Set level and subset attributes for layout
+        for node in graph.nodes():
+            level = levels.get(node, -1)
+            graph.nodes[node]['level'] = level
+            graph.nodes[node]['subset'] = level
+            graph.nodes[node]['category'] = 0  # Default category for nodes
+    else:
+        # No root node, set all to level 0
+        for node in graph.nodes():
+            graph.nodes[node]['level'] = 0
+            graph.nodes[node]['subset'] = 0
+            graph.nodes[node]['category'] = 0
+    
     return graph
 
 
@@ -94,9 +110,9 @@ def add_all_nodes_and_edges(graph: nx.DiGraph, item_data: Dict[str, Any], show_i
     Add all nodes from thoughts_list and all edges from thought_relations.
     
     Args:
-        graph: Existing graph from tree structure
-        item_data: Full item data with thought_relations
-        show_isolated: Whether to include isolated nodes (always adds edges)
+        graph: Existing graph from reasoning_graph structure
+        item_data: Full item data with thought_relations (legacy field)
+        show_isolated: Whether to include isolated nodes
     
     Returns:
         Graph with all nodes and edges added
@@ -104,20 +120,19 @@ def add_all_nodes_and_edges(graph: nx.DiGraph, item_data: Dict[str, Any], show_i
     # Build thought_num to node_id mapping
     thought_to_node = {}
     for node_id, data in graph.nodes(data=True):
-        thought_num = data.get('thought_num', 0)
+        thought_num = data.get('thought_num', node_id)
         thought_to_node[thought_num] = node_id
     
     # Add isolated nodes only if show_isolated=True
     if show_isolated and 'thoughts_list' in item_data:
         thoughts_list = item_data['thoughts_list']
         if isinstance(thoughts_list, str):
-            import json
             thoughts_list = json.loads(thoughts_list)
         
         for thought_id in thoughts_list.keys():
             thought_num = int(thought_id) if not isinstance(thought_id, int) else thought_id
             if thought_num not in thought_to_node:
-                node_id = f"isolated_{thought_num}"
+                node_id = thought_num
                 graph.add_node(
                     node_id,
                     level=-1,
@@ -128,7 +143,7 @@ def add_all_nodes_and_edges(graph: nx.DiGraph, item_data: Dict[str, Any], show_i
                 )
                 thought_to_node[thought_num] = node_id
     
-    # ALWAYS add edges from thought_relations (to show multiple parents)
+    # Add edges from thought_relations (legacy field, if present)
     if 'thought_relations' not in item_data:
         return graph
     
@@ -150,7 +165,7 @@ def add_all_nodes_and_edges(graph: nx.DiGraph, item_data: Dict[str, Any], show_i
     return graph
 
 
-def get_multipartite_layout(graph: nx.DiGraph) -> Dict[str, Tuple[float, float]]:
+def get_multipartite_layout(graph: nx.DiGraph) -> Dict[int, Tuple[float, float]]:
     """
     Create hierarchical layout using multipartite_layout (NON-RECURSIVE).
     
@@ -188,7 +203,7 @@ def get_multipartite_layout(graph: nx.DiGraph) -> Dict[str, Tuple[float, float]]
 
 def get_relation_stats(item_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Extract statistics from thought_relations field.
+    Extract statistics from thought_relations field (legacy) or reasoning_graph.
     
     Args:
         item_data: Full item data
@@ -202,6 +217,22 @@ def get_relation_stats(item_data: Dict[str, Any]) -> Dict[str, Any]:
         'category_dist': {},
     }
     
+    # Try reasoning_graph first (new format)
+    if 'reasoning_graph' in item_data:
+        graph = item_data['reasoning_graph']
+        edges = graph.get('edges', [])
+        
+        if edges:
+            stats['has_relations'] = True
+            stats['total_edges'] = len(edges)
+            
+            all_categories = [edge.get('category', 0) for edge in edges]
+            category_counts = Counter(all_categories)
+            stats['category_dist'] = dict(category_counts)
+        
+        return stats
+    
+    # Fall back to thought_relations (legacy format)
     if 'thought_relations' not in item_data:
         return stats
 
@@ -220,22 +251,22 @@ def get_relation_stats(item_data: Dict[str, Any]) -> Dict[str, Any]:
     return stats
 
 
-def visualize_tree(tree_dict: Dict[str, Any], item_data: Dict[str, Any], 
-                   output_path: str, show_thoughts: bool = False,
-                   show_edge_labels: bool = False, show_isolated: bool = False):
+def visualize_graph(reasoning_graph: Dict[str, Any], item_data: Dict[str, Any], 
+                    output_path: str, show_thoughts: bool = False,
+                    show_edge_labels: bool = False, show_isolated: bool = False):
     """
-    Visualize a single CoT tree/graph with hierarchical layout.
+    Visualize a single reasoning graph with hierarchical layout.
     
     Args:
-        tree_dict: Tree structure from cot_tree field
+        reasoning_graph: Graph structure from reasoning_graph field
         item_data: Full item data including thoughts_list, tag, etc.
         output_path: Path to save the visualization
         show_thoughts: Whether to show thought text in node labels
         show_edge_labels: Whether to show edge categories
         show_isolated: Whether to show isolated nodes
     """
-    # 1. Build Graph Iteratively (NO RECURSION)
-    graph = tree_to_graph(tree_dict)
+    # 1. Build Graph from Edge List (NO RECURSION)
+    graph = graph_from_edge_list(reasoning_graph)
     graph = add_all_nodes_and_edges(graph, item_data, show_isolated)
     
     # 2. Compute Layout (NON-RECURSIVE multipartite_layout)
@@ -267,13 +298,12 @@ def visualize_tree(tree_dict: Dict[str, Any], item_data: Dict[str, Any],
     if show_thoughts and 'thoughts_list' in item_data:
         thoughts = item_data['thoughts_list']
         if isinstance(thoughts, str):
-            import json
             thoughts = json.loads(thoughts)
         thoughts = {str(k): v for k, v in thoughts.items()}
         
         labels = {}
         for node in graph.nodes():
-            thought_num = thought_nums.get(node, 0)
+            thought_num = thought_nums.get(node, node)
             thought_text = thoughts.get(str(thought_num), "")
             thought_text = thought_text.replace('\\', '/')
             if len(thought_text) > 30:
@@ -282,8 +312,8 @@ def visualize_tree(tree_dict: Dict[str, Any], item_data: Dict[str, Any],
     else:
         labels = {}
         for node in graph.nodes():
-            thought_num = thought_nums.get(node, 0)
-            labels[node] = f"T{thought_num}" if levels.get(node, 0) == -1 else str(node)
+            thought_num = thought_nums.get(node, node)
+            labels[node] = f"T{thought_num}"
     
     nx.draw_networkx_nodes(
         graph, pos, node_color=node_colors, 
@@ -382,16 +412,16 @@ def visualize_tree(tree_dict: Dict[str, Any], item_data: Dict[str, Any],
     plt.close()
 
 
-def visualize_all_trees(input_path: str, output_dir: str, max_trees: int = None, 
-                        show_thoughts: bool = False, show_edge_labels: bool = False,
-                        summary_stats: bool = True, show_isolated: bool = False):
+def visualize_all_graphs(input_path: str, output_dir: str, max_graphs: int = None, 
+                         show_thoughts: bool = False, show_edge_labels: bool = False,
+                         summary_stats: bool = True, show_isolated: bool = False):
     """
-    Visualize all trees from final.json output.
+    Visualize all graphs from final.json output.
     
     Args:
         input_path: Path to final.json
         output_dir: Directory to save visualizations
-        max_trees: Maximum number of trees to visualize (None for all)
+        max_graphs: Maximum number of graphs to visualize (None for all)
         show_thoughts: Whether to show thought text in labels
         show_edge_labels: Whether to color edges by category
         summary_stats: Whether to print summary statistics
@@ -410,21 +440,27 @@ def visualize_all_trees(input_path: str, output_dir: str, max_trees: int = None,
     
     print(f"Found {len(data)} items")
     
-    has_relations = any('thought_relations' in item for item in data)
-    if has_relations:
-        print("✓ Detected parent selection format (with thought_relations)")
-    else:
-        print("✓ Detected original pipeline format")
+    has_new_format = any('reasoning_graph' in item for item in data)
+    has_old_format = any('cot_tree' in item for item in data)
     
-    if max_trees is not None:
-        data = data[:max_trees]
+    if has_new_format:
+        print("✓ Detected new graph format (reasoning_graph)")
+    elif has_old_format:
+        print("⚠ Warning: Old format detected (cot_tree). This visualizer expects reasoning_graph format.")
+        print("  Visualization may not work correctly.")
+    else:
+        print("✗ Error: No graph data found in input file")
+        return
+    
+    if max_graphs is not None:
+        data = data[:max_graphs]
         print(f"Visualizing first {len(data)} graphs")
     
     all_stats = []
     
     for i, item in enumerate(data):
-        if 'cot_tree' not in item:
-            print(f"Warning: Item {i} has no cot_tree, skipping")
+        if 'reasoning_graph' not in item:
+            print(f"Warning: Item {i} has no reasoning_graph, skipping")
             continue
         
         tag = item.get('tag', f'item_{i}')
@@ -434,8 +470,8 @@ def visualize_all_trees(input_path: str, output_dir: str, max_trees: int = None,
         print(f"\nVisualizing graph {i+1}/{len(data)}: {tag}")
         
         try:
-            visualize_tree(
-                item['cot_tree'], 
+            visualize_graph(
+                item['reasoning_graph'], 
                 item, 
                 str(output_path),
                 show_thoughts=show_thoughts,
@@ -443,9 +479,8 @@ def visualize_all_trees(input_path: str, output_dir: str, max_trees: int = None,
                 show_isolated=show_isolated
             )
             
-            if has_relations:
-                stats = get_relation_stats(item)
-                all_stats.append(stats)
+            stats = get_relation_stats(item)
+            all_stats.append(stats)
                 
         except Exception as e:
             print(f"Error visualizing graph {tag}: {str(e)[:100]}")
@@ -457,9 +492,9 @@ def visualize_all_trees(input_path: str, output_dir: str, max_trees: int = None,
     print(f"Visualization complete! Images saved to: {output_dir}")
     print(f"{'='*80}\n")
     
-    if summary_stats and all_stats and has_relations:
+    if summary_stats and all_stats and any(s['has_relations'] for s in all_stats):
         print("\n" + "="*80)
-        print("SUMMARY STATISTICS (Parent Selection)")
+        print("SUMMARY STATISTICS")
         print("="*80)
         
         total_edges = sum(s['total_edges'] for s in all_stats)
@@ -475,7 +510,7 @@ def visualize_all_trees(input_path: str, output_dir: str, max_trees: int = None,
         for cat_id in sorted(all_categories.keys()):
             cat_name = CATEGORY_NAMES.get(cat_id, f"Unknown ({cat_id})")
             count = all_categories[cat_id]
-            pct = 100 * count / total_edges
+            pct = 100 * count / total_edges if total_edges > 0 else 0
             print(f"  {cat_name}: {count:,} ({pct:.1f}%)")
         
         print("\n" + "="*80 + "\n")
@@ -486,21 +521,21 @@ def main():
     import argparse
     
     parser = argparse.ArgumentParser(
-        description="Visualize Chain-of-Thought graphs from LCoT2Tree output (Parent Selection Version) - NON-RECURSIVE"
+        description="Visualize Chain-of-Thought graphs from reasoning pipeline - NON-RECURSIVE"
     )
     parser.add_argument(
-        '--input_path',
+        'input_path',
         nargs='?',
-        default='./data/processed/lcot2tree_test/final.json',
-        help='Path to final.json file (default: ./data/processed/lcot2tree_test/final.json)'
+        default='./data/processed/reasoning_graph_test/final.json',
+        help='Path to final.json file (default: ./data/processed/reasoning_graph_test/final.json)'
     )
     parser.add_argument(
         '--output_dir', '-o',
-        default='./outputs/visualizations/cot_graphs',
-        help='Output directory for visualizations (default: ./outputs/visualizations/cot_graphs)'
+        default='./outputs/visualizations/reasoning_graphs',
+        help='Output directory for visualizations (default: ./outputs/visualizations/reasoning_graphs)'
     )
     parser.add_argument(
-        '--max_trees', '-n',
+        '--max_graphs', '-n',
         type=int,
         default=None,
         help='Maximum number of graphs to visualize (default: all)'
@@ -518,7 +553,7 @@ def main():
     parser.add_argument(
         '--show_isolated', '-i',
         action='store_true',
-        help='Show isolated nodes not connected to tree (default: False, but multiple parents always shown)'
+        help='Show isolated nodes not connected to graph (default: False)'
     )
     parser.add_argument(
         '--no_summary',
@@ -531,17 +566,17 @@ def main():
     if not os.path.exists(args.input_path):
         print(f"Error: Input file not found: {args.input_path}")
         print("\nUsage examples:")
-        print("  python visualize_cot_graphs.py")
-        print("  python visualize_cot_graphs.py path/to/final.json")
-        print("  python visualize_cot_graphs.py --max_trees 5 --show_thoughts")
-        print("  python visualize_cot_graphs.py --show_edge_labels")
-        print("  python visualize_cot_graphs.py --show_isolated  # Show isolated nodes")
+        print("  python visualize_reasoning_graphs.py")
+        print("  python visualize_reasoning_graphs.py path/to/final.json")
+        print("  python visualize_reasoning_graphs.py --max_graphs 5 --show_thoughts")
+        print("  python visualize_reasoning_graphs.py --show_edge_labels")
+        print("  python visualize_reasoning_graphs.py --show_isolated")
         return 1
     
-    visualize_all_trees(
+    visualize_all_graphs(
         args.input_path,
         args.output_dir,
-        max_trees=args.max_trees,
+        max_graphs=args.max_graphs,
         show_thoughts=args.show_thoughts,
         show_edge_labels=args.show_edge_labels,
         summary_stats=not args.no_summary,

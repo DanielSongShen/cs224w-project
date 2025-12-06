@@ -1,22 +1,29 @@
-"""Wrapper for LCoT2Tree pipeline with configurable LLM backend - OPTIMIZED VERSION
+"""Chain-of-Thought Reasoning Graph Pipeline
 
-Key changes:
-- Step 4: Parent selection approach (O(N) instead of O(N²) API calls)
-  * For each thought in step N, select parents from candidates in step N-1
-  * LLM must return at least one parent per thought
-  * Supports multiple parents for complex reasoning dependencies
-  * Uses "Default" category (5) for fallback connections
-- Step 5: Guaranteed connectivity with fallback mechanism
-  * All thoughts guaranteed to be in tree
-  * Missing nodes automatically connected to most recent thought from previous step
-  * Fallback connections use "Default" category (5)
+Converts reasoning traces into structured graphs with the following features:
+- Splits reasoning text into atomic thoughts
+- Extracts high-level reasoning steps
+- Maps thoughts to reasoning steps
+- Identifies parent-child relationships between thoughts
+- Builds DAG representation supporting multiple parents per node
 
 Categories:
 1. Continuous Logic - Direct continuation of reasoning
 2. Exploration - Alternative paths or branches
 3. Backtracking - Revisions or corrections
 4. Validation - Supporting evidence
-5. Default - Automatic fallback connections (when LLM fails or for missing nodes)
+5. Default - Automatic fallback connections (structural)
+
+Optimizations:
+- O(N) API calls instead of O(N²) by comparing only adjacent reasoning steps
+- Parallel processing with configurable workers
+- Async batch processing support
+- Guaranteed connectivity with structural fallback mechanisms
+
+ROBUST FALLBACK IMPROVEMENTS:
+- Coverage Guarantee: Ensures all thoughts are assigned to steps (prevents disconnected roots)
+- Gap Bridging: Finds nearest non-empty previous step
+- LCoT Structural Fallback: Connects to anchor of previous step (creates hierarchical trees, not linear chains)
 """
 import os
 import sys
@@ -28,37 +35,18 @@ import concurrent.futures
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from .llm_client import LLMClient, create_llm_client
+# Try to import create_llm_client - will be used if model_backend is passed
+try:
+    from .llm_client import create_llm_client
+except ImportError:
+    try:
+        from llm_client import create_llm_client
+    except ImportError:
+        create_llm_client = None
 
 
-# Tree utility classes (from LCoT2Tree)
-class TreeNode:
-    """Tree node for representing Chain-of-Thought structure"""
-    def __init__(self, value, level, text=None, is_critical=False, father=None, 
-                 children=None, cate=None, thought_list=None):
-        self.value = value
-        self.level = level
-        self.text = text
-        self.is_critical = is_critical
-        self.cate = cate
-        self.father = father
-        self.thought_list = thought_list
-        self.children = children if children is not None else []
-
-
-def tree_to_dict_with_cate(node):
-    """Convert tree node to dictionary with category information"""
-    return {
-        "value": node.value,
-        "level": node.level,
-        "cate": node.cate,
-        "thought_list": node.thought_list,
-        "children": [tree_to_dict_with_cate(child) for child in node.children]
-    }
-
-
-class LCoT2TreePipeline:
-    """Pipeline for processing reasoning traces into CoT trees"""
+class ReasoningGraphPipeline:
+    """Pipeline for processing reasoning traces into graph structures (DAG support)"""
     
     # Split words for thought segmentation
     SPLIT_WORDS = [
@@ -85,21 +73,23 @@ class LCoT2TreePipeline:
     
     def __init__(
         self,
-        llm_client: LLMClient,
+        llm_client,
         output_dir: str,
         max_workers: int = 50,
         use_async: bool = False,
-        batch_size: int = 10
+        batch_size: int = 10,
+        debug: bool = False
     ):
         """
-        Initialize LCoT2Tree pipeline.
+        Initialize reasoning graph pipeline.
         
         Args:
-            llm_client: LLM client for API calls
+            llm_client: LLM client for API calls (must have .generate(messages) method)
             output_dir: Directory to store intermediate and final outputs
             max_workers: Number of parallel workers for LLM calls (sync mode)
             use_async: Whether to use async batch processing
             batch_size: Batch size for async processing
+            debug: Enable detailed debug logging
         """
         self.llm_client = llm_client
         self.output_dir = Path(output_dir)
@@ -107,6 +97,7 @@ class LCoT2TreePipeline:
         self.max_workers = max_workers
         self.use_async = use_async
         self.batch_size = batch_size
+        self.debug = debug
     
     def split_text(self, text: str, split_words: List[str]) -> List[str]:
         """Split text into parts based on split words"""
@@ -372,6 +363,22 @@ class LCoT2TreePipeline:
                         thought_num = re.search(r'\d+', str(key))
                         if thought_num:
                             all_assignments[int(thought_num.group())] = value
+                    
+                    # === FIX START: Backfill missing thoughts ===
+                    # Ensure every thought ID from 0 to len(thoughts)-1 exists
+                    for i in range(len(thoughts)):
+                        if i not in all_assignments:
+                            # Inherit from previous thought, or default to Step 1 if it's the first thought
+                            if i > 0:
+                                all_assignments[i] = all_assignments.get(i-1, [1])
+                            else:
+                                all_assignments[i] = [1]
+                            
+                            # Optional: Mark as inferred for debugging
+                            if self.debug:
+                                print(f"  Warning: Thought {i} missing from LLM output. Inherited step {all_assignments[i]}")
+                    # === FIX END ===
+
                 else:
                     # Fallback: assign each thought to step based on order
                     all_assignments = {}
@@ -416,8 +423,14 @@ class LCoT2TreePipeline:
         """
         Step 4: Assign parent relationships for each thought.
         
-        OPTIMIZED: For each thought in reasoning step N, identify its parents from step N-1
-        in a single LLM call (reduces from O(N²) to O(N) API calls).
+        OPTIMIZED: Comparison between High-Level Steps with Robust Fallback.
+        - Coverage Guarantee: Ensures all thoughts are assigned to steps (prevents disconnected roots)
+        - Gap Bridging: Finds nearest non-empty previous step
+        - LCoT Structural Fallback: Connects to anchor of previous step (creates hierarchical trees)
+        
+        The structural fallback connects thoughts to the last thought of the previous step,
+        creating "bushy" tree structures where siblings share a parent, rather than
+        linear chains from chronological fallback.
         
         Args:
             input_data: Items with 'thoughts_list' and 'assigned_step'
@@ -425,13 +438,12 @@ class LCoT2TreePipeline:
         Returns:
             Items with added 'thought_relations' field
         """
-        print("\n=== Step 4: Assigning parent relationships ===")
+        print("\n=== Step 4: Assigning parent relationships (LCoT Structural) ===")
         start_time = time.time()
 
-        # New prompt that selects parents from candidates
         system_message = """You are analyzing the thought dependencies in a chain of reasoning.
 
-                        For the Current Thought from reasoning step N, you will be given a list of Candidate Parents from step N-1.
+                        For the Current Thought from reasoning step N, you will be given a list of Candidate Parents from the previous logical step.
                         Your task: Identify which candidates are directly related to the current thought.
 
                         Relationship Categories:
@@ -529,28 +541,112 @@ class LCoT2TreePipeline:
                         step_to_thoughts[step_id] = []
                     step_to_thoughts[step_id].append(thought_id)
             
+            # --- COVERAGE GUARANTEE (Sanitization) ---
+            # Ensures every thought ID [0...N] is assigned to a step.
+            # Fixes the "Disconnected Root" issue where thoughts are skipped by LLM.
+            all_thought_ids = set(range(len(thoughts)))
+            assigned_ids = set()
+            for ids in step_to_thoughts.values():
+                assigned_ids.update(ids)
+            
+            missing_ids = sorted(list(all_thought_ids - assigned_ids))
+            
+            for t_id in missing_ids:
+                # Inherit step from previous thought (t_id - 1)
+                # If T1 is missing, it inherits T0's step (or defaults to 1)
+                prev_id = t_id - 1
+                found_step = 1  # Default
+                
+                if prev_id >= 0:
+                    for step_n, ids in step_to_thoughts.items():
+                        if prev_id in ids:
+                            found_step = step_n
+                            break
+                
+                if found_step not in step_to_thoughts:
+                    step_to_thoughts[found_step] = []
+                step_to_thoughts[found_step].append(t_id)
+                step_to_thoughts[found_step].sort()  # Maintain order
+            # --------------------------------------------
+            
+            # =========================================================
+            # [FIX START] SAVE THE SANITIZED ASSIGNMENTS BACK TO ITEM
+            # =========================================================
+            # Reconstruct the assignments dictionary from the sanitized step_to_thoughts
+            # so the corrections are persisted to final.json
+            new_assigned_step = {}
+            for step_id, t_ids in step_to_thoughts.items():
+                for t_id in t_ids:
+                    if t_id not in new_assigned_step:
+                        new_assigned_step[t_id] = []
+                    # Ensure we don't duplicate steps if rebuilding
+                    if step_id not in new_assigned_step[t_id]:
+                        new_assigned_step[t_id].append(step_id)
+            
+            # Update the item
+            item["assigned_step"] = new_assigned_step
+            # =========================================================
+            # [FIX END]
+            
             # Get reasoning steps
             reasoning_steps = extract_reasoning_dict(item.get("reasoning_sketch", ""))
             max_step = max(reasoning_steps.keys()) if reasoning_steps else 0
             
+            # Debug: Print step assignments
+            if self.debug:
+                print(f"\n{'='*70}")
+                print(f"DEBUG: Processing item '{item.get('tag', 'unknown')}'")
+                print(f"{'='*70}")
+                print(f"Total thoughts: {len(thoughts)}")
+                print(f"Step assignments:")
+                for step_id in sorted(step_to_thoughts.keys()):
+                    thought_ids = sorted(step_to_thoughts[step_id])
+                    print(f"  Step {step_id}: {thought_ids}")
+            
             # Initialize relations structure: {parent_id: {child_id: category}}
             item["thought_relations"] = {}
+            
+            # Debug tracking
+            if self.debug:
+                debug_stats = {
+                    "llm_selected": 0,
+                    "structural_fallback": 0,
+                    "chronological_fallback": 0,
+                    "edge_details": []
+                }
             
             # Prepare all parent selection queries
             queries_to_process = []
             
-            # For each reasoning step N (starting from step 2)
-            for step_n in range(2, max_step + 1):
+            # For each reasoning step N (starting from step 1)
+            for step_n in range(1, max_step + 1):
                 if step_n not in step_to_thoughts:
                     continue
-                if (step_n - 1) not in step_to_thoughts:
-                    continue
                 
+                # --- ROBUST IMPROVEMENT 1: Gap Bridging (Find Nearest Non-Empty Previous Step) ---
+                # Look backwards until we find a step with thoughts
+                prev_step_n = step_n - 1
+                while prev_step_n > 0 and prev_step_n not in step_to_thoughts:
+                    prev_step_n -= 1
+                
+                # If we went all the way back and found nothing, use empty list
+                thoughts_prev_step = step_to_thoughts.get(prev_step_n, [])
                 thoughts_n = step_to_thoughts[step_n]
-                thoughts_n_minus_1 = step_to_thoughts[step_n - 1]
                 
-                # For each thought in step N, find its parents from step N-1
+                # Calculate anchor of previous step (last thought chronologically)
+                # This is used for LCoT Structural Fallback
+                anchor_prev_step = max(thoughts_prev_step) if thoughts_prev_step else None
+                
+                # Debug: Print anchor info
+                if self.debug and thoughts_n:
+                    print(f"\n  Processing Step {step_n} (thoughts: {thoughts_n})")
+                    print(f"    Previous step: {prev_step_n}, thoughts: {thoughts_prev_step}")
+                    print(f"    Anchor: T{anchor_prev_step}" if anchor_prev_step is not None else "    Anchor: None")
+                
+                # For each thought in step N, find its parents from previous step
                 for thought_n in thoughts_n:
+                    if thought_n == 0:  # Skip T0 (root node)
+                        continue
                     if thought_n >= len(thoughts):
                         continue
                     
@@ -562,13 +658,16 @@ class LCoT2TreePipeline:
                     
                     # Build candidate parents list
                     candidates = []
-                    for idx, thought_prev in enumerate(thoughts_n_minus_1):
+                    
+                    # Add Semantic Candidates (from prev_step_n)
+                    for thought_prev in thoughts_prev_step:
                         if thought_prev >= len(thoughts):
                             continue
+                        
                         text_prev = thoughts[thought_prev]
-                        # Truncate very long candidate
                         if len(text_prev) > 300:
                             text_prev = text_prev[:300] + "..."
+                        
                         candidates.append({
                             "id": thought_prev,
                             "text": text_prev
@@ -581,11 +680,11 @@ class LCoT2TreePipeline:
                             "candidate_parents": candidates
                         }, ensure_ascii=False)
                         
-                        queries_to_process.append((thought_n, candidates, user_content, step_n))
+                        queries_to_process.append((thought_n, candidates, user_content, step_n, anchor_prev_step))
             
             # Process all queries in parallel
             def find_parents(query_data):
-                thought_n, candidates, user_content, step_n = query_data
+                thought_n, candidates, user_content, step_n, anchor_prev_step = query_data
                 try:
                     messages = [
                         {"role": "system", "content": system_message},
@@ -595,10 +694,15 @@ class LCoT2TreePipeline:
                     parsed = extract_and_parse_json(response)
                     
                     parents = []
+                    llm_selected = False
                     if parsed and "parents" in parsed:
                         for parent_info in parsed["parents"]:
                             parent_id = parent_info.get("id")
                             category = parent_info.get("category", "Continuous Logic")
+                            
+                            # Verify valid candidate
+                            if not any(c['id'] == parent_id for c in candidates):
+                                continue
                             
                             # Map category to integer
                             category_map = {
@@ -609,20 +713,29 @@ class LCoT2TreePipeline:
                             }
                             cat_num = category_map.get(category, 1)
                             parents.append((parent_id, cat_num))
+                            llm_selected = True
                     
-                    # Fallback: if no parents selected, use most recent thought from previous step
-                    if not parents:
-                        # Get the last candidate (most recent from previous step)
-                        most_recent = candidates[-1]["id"]
-                        parents.append((most_recent, 5))  # Category 5 = Default (fallback)
+                    # --- ROBUST IMPROVEMENT 2: LCoT Structural Fallback ---
+                    # Connect to anchor of previous step (creates hierarchical trees)
+                    # instead of T(n-1) (which creates linear chains)
+                    fallback_type = None
+                    if not parents and anchor_prev_step is not None:
+                        parents.append((anchor_prev_step, 5))  # Category 5 = Default (structural)
+                        fallback_type = "structural"
+                    elif not parents:
+                        # Absolute fallback if no previous step anchor exists
+                        parents.append((thought_n - 1, 5))
+                        fallback_type = "chronological"
                     
-                    return thought_n, parents, in_tokens, out_tokens
+                    return thought_n, parents, in_tokens, out_tokens, llm_selected, fallback_type
                     
                 except Exception as e:
                     print(f"Error finding parents for thought {thought_n} in {item['tag']}: {e}")
-                    # Fallback to most recent from previous step
-                    most_recent = candidates[-1]["id"] if candidates else 0
-                    return thought_n, [(most_recent, 5)], 0, 0  # Category 5 = Default
+                    # Fallback to anchor of previous step
+                    if anchor_prev_step is not None:
+                        return thought_n, [(anchor_prev_step, 5)], 0, 0, False, "structural_error"
+                    else:
+                        return thought_n, [(thought_n - 1, 5)], 0, 0, False, "chronological_error"
             
             # Execute in parallel
             if queries_to_process:
@@ -631,14 +744,61 @@ class LCoT2TreePipeline:
                 
                 # Aggregate results into thought_relations
                 # Structure: {parent_id: {child_id: category}}
-                for thought_n, parents, in_tokens, out_tokens in results:
+                for thought_n, parents, in_tokens, out_tokens, llm_selected, fallback_type in results:
                     for parent_id, category in parents:
                         if parent_id not in item["thought_relations"]:
                             item["thought_relations"][parent_id] = {}
                         item["thought_relations"][parent_id][thought_n] = category
+                        
+                        # Debug tracking
+                        if self.debug:
+                            if llm_selected:
+                                debug_stats["llm_selected"] += 1
+                            elif fallback_type in ["structural", "structural_error"]:
+                                debug_stats["structural_fallback"] += 1
+                            elif fallback_type in ["chronological", "chronological_error"]:
+                                debug_stats["chronological_fallback"] += 1
+                            
+                            edge_type = "LLM" if llm_selected else f"Fallback({fallback_type})"
+                            debug_stats["edge_details"].append({
+                                "child": thought_n,
+                                "parent": parent_id,
+                                "type": edge_type,
+                                "category": category
+                            })
                     
                     item["in_token_cost"] = item.get("in_token_cost", 0) + in_tokens
                     item["out_token_cost"] = item.get("out_token_cost", 0) + out_tokens
+            
+            # Debug: Print summary
+            if self.debug:
+                print(f"\n{'='*70}")
+                print(f"DEBUG SUMMARY for '{item.get('tag', 'unknown')}'")
+                print(f"{'='*70}")
+                print(f"Total edges created: {len(debug_stats['edge_details'])}")
+                print(f"  LLM selected: {debug_stats['llm_selected']}")
+                print(f"  Structural fallback: {debug_stats['structural_fallback']}")
+                print(f"  Chronological fallback: {debug_stats['chronological_fallback']}")
+                print(f"\nEdge details:")
+                for edge in debug_stats["edge_details"]:
+                    cat_name = {1: "Continuous", 2: "Exploration", 3: "Backtracking", 
+                               4: "Validation", 5: "Default"}
+                    print(f"  T{edge['parent']} → T{edge['child']} [{edge['type']}] ({cat_name.get(edge['category'], edge['category'])})")
+                
+                # Analyze linear chains
+                out_degree = {}
+                for edge in debug_stats["edge_details"]:
+                    parent = edge["parent"]
+                    out_degree[parent] = out_degree.get(parent, 0) + 1
+                
+                linear_edges = sum(1 for deg in out_degree.values() if deg == 1)
+                branching_nodes = sum(1 for deg in out_degree.values() if deg > 1)
+                
+                print(f"\nStructure Analysis:")
+                print(f"  Nodes with 1 child (linear): {linear_edges}")
+                print(f"  Nodes with 2+ children (branching): {branching_nodes}")
+                print(f"  Max children per node: {max(out_degree.values()) if out_degree else 0}")
+                print(f"{'='*70}\n")
             
             return item
         
@@ -665,174 +825,100 @@ class LCoT2TreePipeline:
         
         return results
     
-    def step5_build_tree(self, input_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def step5_build_graph(self, input_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Step 5: Build graph structure from parent-child relationships.
         
-        OPTIMIZED: Build edges from thought_relations with guaranteed connectivity.
-        Each child node is guaranteed to have at least one parent.
+        Creates a clean edge list representation (DAG-friendly).
+        All nodes from thoughts_list are included.
+        All edges from thought_relations are preserved (including multiple parents).
         
         Args:
             input_data: Items with 'thought_relations' from step 4
         
         Returns:
-            Items with added 'cot_tree' field
+            Items with added 'reasoning_graph' field
         """
-        print("\n=== Step 5: Building trees with guaranteed connectivity ===")
+        print("\n=== Step 5: Building graph structures ===")
         start_time = time.time()
-        
-        def build_relation_tree(item):
-            """Build tree structure from thought relations"""
-            thought_relations = item.get("thought_relations", {})
-            
-            # Convert keys to integers if needed
-            if isinstance(thought_relations, str):
-                thought_relations = json.loads(thought_relations)
-            
-            # Ensure keys are integers: {parent_id: {child_id: category}}
-            relations = {}
-            for src_key, targets in thought_relations.items():
-                src = int(src_key) if not isinstance(src_key, int) else src_key
-                relations[src] = {}
-                for tgt_key, category in targets.items():
-                    tgt = int(tgt_key) if not isinstance(tgt_key, int) else tgt_key
-                    relations[src][tgt] = category
-            
-            # Build adjacency list: parent -> [(child, category)]
-            edges = {}
-            all_children = set()
-            for parent, targets in relations.items():
-                for child, category in targets.items():
-                    if parent not in edges:
-                        edges[parent] = []
-                    edges[parent].append((child, category))
-                    all_children.add(child)
-            
-            # Get assigned_step for fallback parent assignment
-            assigned_step = item.get("assigned_step", {})
-            clean_assigned = {}
-            for key, values in assigned_step.items():
-                clean_key = int(re.sub(r'[A-Za-z]', '', str(key)))
-                clean_values = [int(re.sub(r'[A-Za-z]', '', str(v))) for v in values]
-                clean_assigned[clean_key] = clean_values
-            
-            # Build reverse mapping: step_id -> [thought_ids]
-            step_to_thoughts = {}
-            for thought_id, step_ids in clean_assigned.items():
-                for step_id in step_ids:
-                    if step_id not in step_to_thoughts:
-                        step_to_thoughts[step_id] = []
-                    step_to_thoughts[step_id].append(thought_id)
-            
-            # Build tree starting from thought 0 (root)
-            root = TreeNode("0", 0, cate=0, thought_list=[0])
-            
-            # Track which thoughts have been added to avoid cycles
-            added_thoughts = {0}
-            
-            # BFS to build tree structure
-            queue = [(root, 0)]  # (node, thought_id)
-            
-            while queue:
-                parent_node, parent_thought = queue.pop(0)
-                
-                # Get children of this thought
-                if parent_thought in edges:
-                    for child_thought, category in edges[parent_thought]:
-                        if child_thought not in added_thoughts:
-                            # Create child node
-                            child_value = f"{child_thought}-0"
-                            child_level = parent_node.level + 1
-                            
-                            child_node = TreeNode(
-                                child_value,
-                                child_level,
-                                father=parent_node,
-                                cate=category,
-                                thought_list=[child_thought]
-                            )
-                            
-                            parent_node.children.append(child_node)
-                            added_thoughts.add(child_thought)
-                            queue.append((child_node, child_thought))
-            
-            # CONNECTIVITY GUARANTEE: Ensure all thoughts are in the tree
-            # If any thought is missing, connect it to the most recent thought from previous reasoning step
-            thought_list = self.normalize_thought_keys(item["thoughts_list"])
-            total_thoughts = len(thought_list)
-            
-            missing_thoughts = set(range(total_thoughts)) - added_thoughts
-            
-            if missing_thoughts:
-                # For each missing thought, find its reasoning step and connect to previous step
-                for missing_id in sorted(missing_thoughts):
-                    # Find which reasoning step this thought belongs to
-                    thought_step = None
-                    for step_id, thoughts in step_to_thoughts.items():
-                        if missing_id in thoughts:
-                            thought_step = step_id
-                            break
-                    
-                    if thought_step is None or thought_step == 1:
-                        # If not found or in first step, connect to root
-                        fallback_parent_node = root
-                        fallback_parent_thought = 0
-                    else:
-                        # Connect to most recent thought from previous step
-                        prev_step_thoughts = step_to_thoughts.get(thought_step - 1, [0])
-                        fallback_parent_thought = prev_step_thoughts[-1]  # Most recent
-                        
-                        # Find the node for this parent
-                        fallback_parent_node = None
-                        search_queue = [root]
-                        while search_queue:
-                            node = search_queue.pop(0)
-                            if node.thought_list and node.thought_list[0] == fallback_parent_thought:
-                                fallback_parent_node = node
-                                break
-                            search_queue.extend(node.children)
-                        
-                        if fallback_parent_node is None:
-                            fallback_parent_node = root
-                    
-                    # Add missing thought as child
-                    child_value = f"{missing_id}-0"
-                    child_level = fallback_parent_node.level + 1
-                    
-                    child_node = TreeNode(
-                        child_value,
-                        child_level,
-                        father=fallback_parent_node,
-                        cate=5,  # Category 5 = Default (fallback connection)
-                        thought_list=[missing_id]
-                    )
-                    
-                    fallback_parent_node.children.append(child_node)
-                    added_thoughts.add(missing_id)
-            
-            return root
         
         results = []
         for item in input_data:
             try:
-                tree_root = build_relation_tree(item)
-                tree_dict = tree_to_dict_with_cate(tree_root)
-                item["cot_tree"] = tree_dict
+                thought_relations = item.get("thought_relations", {})
+                
+                # Convert keys to integers if needed
+                if isinstance(thought_relations, str):
+                    thought_relations = json.loads(thought_relations)
+                
+                # Normalize to integer keys: {parent_id: {child_id: category}}
+                relations = {}
+                for src_key, targets in thought_relations.items():
+                    src = int(src_key) if not isinstance(src_key, int) else src_key
+                    relations[src] = {}
+                    for tgt_key, category in targets.items():
+                        tgt = int(tgt_key) if not isinstance(tgt_key, int) else tgt_key
+                        relations[src][tgt] = category
+                
+                # Build edge list
+                edges = []
+                all_nodes = set()
+                
+                for parent_id, targets in relations.items():
+                    all_nodes.add(parent_id)
+                    for child_id, category in targets.items():
+                        all_nodes.add(child_id)
+                        edges.append({
+                            "source": parent_id,
+                            "target": child_id,
+                            "category": category
+                        })
+                
+                # Get all thoughts to ensure complete node list
+                thought_list = self.normalize_thought_keys(item["thoughts_list"])
+                total_thoughts = len(thought_list)
+                
+                # Create node list (all thoughts)
+                nodes = list(range(total_thoughts))
+                
+                # Build graph structure
+                item["reasoning_graph"] = {
+                    "nodes": nodes,
+                    "edges": edges
+                }
                 
                 # Add statistics
-                total_edges = sum(
-                    len(targets) 
-                    for targets in item.get("thought_relations", {}).values()
-                )
+                nodes_with_edges = len(all_nodes)
+                isolated_nodes = [n for n in nodes if n not in all_nodes]
                 
-                item["relation_stats"] = {
-                    "total_edges": total_edges,
-                    "tree_nodes": self._count_nodes(tree_dict)
+                # Calculate in-degree and out-degree
+                in_degree = {}
+                out_degree = {}
+                for edge in edges:
+                    src = edge["source"]
+                    tgt = edge["target"]
+                    out_degree[src] = out_degree.get(src, 0) + 1
+                    in_degree[tgt] = in_degree.get(tgt, 0) + 1
+                
+                # Find nodes with multiple parents
+                multi_parent_nodes = [node for node, degree in in_degree.items() if degree > 1]
+                
+                item["graph_stats"] = {
+                    "total_nodes": total_thoughts,
+                    "nodes_with_edges": nodes_with_edges,
+                    "isolated_nodes": len(isolated_nodes),
+                    "total_edges": len(edges),
+                    "nodes_with_multiple_parents": len(multi_parent_nodes),
+                    "avg_in_degree": sum(in_degree.values()) / max(nodes_with_edges, 1),
+                    "avg_out_degree": sum(out_degree.values()) / max(nodes_with_edges, 1),
+                    "max_in_degree": max(in_degree.values()) if in_degree else 0,
+                    "max_out_degree": max(out_degree.values()) if out_degree else 0
                 }
                 
                 results.append(item)
+                
             except Exception as e:
-                print(f"Error building tree for {item['tag']}: {e}")
+                print(f"Error building graph for {item.get('tag', 'unknown')}: {e}")
                 import traceback
                 traceback.print_exc()
         
@@ -843,36 +929,34 @@ class LCoT2TreePipeline:
         elapsed = time.time() - start_time
         
         # Print summary statistics
-        total_edges = sum(r.get("relation_stats", {}).get("total_edges", 0) for r in results)
-        total_nodes = sum(r.get("relation_stats", {}).get("tree_nodes", 0) for r in results)
+        total_edges = sum(r.get("graph_stats", {}).get("total_edges", 0) for r in results)
+        total_nodes = sum(r.get("graph_stats", {}).get("total_nodes", 0) for r in results)
+        isolated = sum(r.get("graph_stats", {}).get("isolated_nodes", 0) for r in results)
+        multi_parent = sum(r.get("graph_stats", {}).get("nodes_with_multiple_parents", 0) for r in results)
         
-        print(f"Saved {len(results)} trees to {output_path}")
-        print(f"Relation statistics:")
+        print(f"Saved {len(results)} graphs to {output_path}")
+        print(f"Graph statistics:")
+        print(f"  Total nodes: {total_nodes}")
         print(f"  Total edges: {total_edges}")
-        print(f"  Average nodes per tree: {total_nodes/max(len(results), 1):.1f}")
+        print(f"  Nodes with multiple parents: {multi_parent}")
+        print(f"  Isolated nodes: {isolated}")
+        print(f"  Average edges per graph: {total_edges/max(len(results), 1):.1f}")
         print(f"⏱️  Step 5 completed in {elapsed:.2f} seconds")
         
         return results
     
-    def _count_nodes(self, tree_dict):
-        """Recursively count nodes in tree"""
-        count = 1
-        for child in tree_dict.get("children", []):
-            count += self._count_nodes(child)
-        return count
-    
     def run_full_pipeline(self, input_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Run the complete LCoT2Tree pipeline.
+        Run the complete reasoning graph pipeline.
         
         Args:
             input_data: List of preprocessed reasoning traces
         
         Returns:
-            List of items with CoT trees
+            List of items with reasoning graphs
         """
         print(f"\n{'='*80}")
-        print("Starting LCoT2Tree Pipeline (Optimized Version)")
+        print("Starting Reasoning Graph Pipeline (DAG Support with LCoT Structural Fallback)")
         print(f"Processing {len(input_data)} samples")
         print(f"Output directory: {self.output_dir}")
         print(f"{'='*80}")
@@ -888,11 +972,11 @@ class LCoT2TreePipeline:
         # Step 3: Assign steps
         data = self.step3_assign_steps(data)
         
-        # Step 4: Assign parent relationships (OPTIMIZED)
+        # Step 4: Assign parent relationships (with robust fallback)
         data = self.step4_assign_functions(data)
         
-        # Step 5: Build trees with connectivity guarantee (OPTIMIZED)
-        data = self.step5_build_tree(data)
+        # Step 5: Build graphs with DAG support
+        data = self.step5_build_graph(data)
         
         total_elapsed = time.time() - pipeline_start
         
@@ -945,49 +1029,91 @@ class LCoT2TreePipeline:
                 f.write(json.dumps(item, ensure_ascii=False) + '\n')
 
 
-def run_lcot2tree_pipeline(
+def run_reasoning_pipeline(
     reasoning_traces: List[Dict[str, Any]],
     output_dir: str,
-    model_backend: str = "gpt5-nano",
+    model_backend: str = None,
     model_name: Optional[str] = None,
     config: Optional[Dict[str, Any]] = None,
+    llm_client=None,
     max_workers: int = 50,
     use_async: bool = False,
     batch_size: int = 10,
+    debug: bool = False,
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
-    Convenience function to run LCoT2Tree pipeline.
+    Convenience function to run reasoning graph pipeline.
     
     Args:
-        reasoning_traces: Preprocessed reasoning traces
+        reasoning_traces: Preprocessed reasoning traces with 'prediction' and 'tag' fields
         output_dir: Output directory for results
-        model_backend: LLM backend ("gpt5-nano", "qwen3-4b", "qwen3-32b", "openai", "huggingface")
+        model_backend: LLM backend name (e.g., "gpt5-nano", "qwen3-4b", "deepseek-v3.2")
         model_name: Explicit model name (optional)
         config: Configuration dict for LLM (optional)
+        llm_client: Pre-configured LLM client (optional, alternative to model_backend)
         max_workers: Number of parallel workers (for sync mode)
         use_async: Whether to use async batch processing
         batch_size: Batch size for async processing (default: 10)
-        **kwargs: Additional arguments for LLM client
+        debug: Enable detailed debug logging (default: False)
+        **kwargs: Additional arguments for LLM client creation
     
     Returns:
-        List of processed items with CoT trees
+        List of processed items with reasoning graphs
     """
-    # Create LLM client
-    llm_client = create_llm_client(
-        backend=model_backend,
-        model_name=model_name,
-        config=config,
-        **kwargs
-    )
+    # Create LLM client if not provided
+    if llm_client is None:
+        if model_backend is None:
+            raise ValueError("Either llm_client or model_backend must be provided")
+        
+        if create_llm_client is None:
+            raise ImportError(
+                "create_llm_client not available. Install or import llm_client module."
+            )
+        
+        llm_client = create_llm_client(
+            backend=model_backend,
+            model_name=model_name,
+            config=config,
+            **kwargs
+        )
     
     # Create and run pipeline
-    pipeline = LCoT2TreePipeline(
+    pipeline = ReasoningGraphPipeline(
         llm_client=llm_client,
         output_dir=output_dir,
         max_workers=max_workers,
         use_async=use_async,
-        batch_size=batch_size
+        batch_size=batch_size,
+        debug=debug
     )
     
     return pipeline.run_full_pipeline(reasoning_traces)
+
+
+# Example usage
+if __name__ == "__main__":
+    # Mock LLM client for demonstration
+    class MockLLMClient:
+        def generate(self, messages):
+            # Return (response, input_tokens, output_tokens)
+            return "Mock response", 100, 50
+    
+    # Sample input data
+    sample_data = [
+        {
+            "tag": "example_001",
+            "prediction": "<think>First, I need to understand the problem. Wait, let me reconsider. Actually, the correct approach is...</think>"
+        }
+    ]
+    
+    # Run pipeline
+    results = run_reasoning_pipeline(
+        reasoning_traces=sample_data,
+        output_dir="./output",
+        llm_client=MockLLMClient(),
+        max_workers=10
+    )
+    
+    print(f"\nProcessed {len(results)} items")
+    print(f"Output format: reasoning_graph with nodes and edges")
