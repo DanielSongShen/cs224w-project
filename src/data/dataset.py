@@ -411,18 +411,25 @@ def convert_json_to_hetero_graph(
     
     num_nodes = len(node_list)
     
+    # Compute in-degree and out-degree for each node
+    out_degree = defaultdict(int)
+    in_degree = defaultdict(int)
+    for edge_type_edges in edges_by_type.values():
+        for src, dst in edge_type_edges:
+            out_degree[src] += 1
+            in_degree[dst] += 1
+    
     # Create HeteroData object
     hetero_data = HeteroData()
     
     # Node features for "thought" nodes
-    # Features: [level, category, thought_index]
+    # Features: [level, in_degree, out_degree, thought_index]
     node_features = []
-    for node in node_list:
+    for idx, node in enumerate(node_list):
         level = node["level"]
-        cate = node["cate"]
         # Use first thought in thought_list, or -1 if empty
         thought_idx = node["thought_list"][0] if node["thought_list"] else -1
-        node_features.append([level, cate, thought_idx])
+        node_features.append([level, in_degree[idx], out_degree[idx], thought_idx])
     
     hetero_data["thought"].x = torch.tensor(node_features, dtype=torch.long)
     hetero_data["thought"].num_nodes = num_nodes
