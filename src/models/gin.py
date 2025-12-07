@@ -1,6 +1,7 @@
 """Graph Neural Network models for heterogeneous graph classification"""
 
 import math
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -176,6 +177,172 @@ class RobustNodeEncoder(nn.Module):
         return self.norm(out)
 
 
+class TextAwareNodeEncoder(nn.Module):
+    """
+    A robust node encoder that combines structural features with text embeddings.
+
+    This encoder:
+    1. Projects structural features (level, degrees) through MLP instead of embeddings
+    2. Uses log-normalization for degrees/levels to handle outliers
+    3. Has learnable PE scaling for position embeddings
+    4. Projects text embeddings (384-dim) down to hidden_dim
+    5. Uses additive fusion: struct_emb + pos_emb + text_emb
+    6. Uses LayerNorm to stabilize the sum of different feature types
+
+    For use with 'tree' format: [level, in_degree, out_degree, thought_idx]
+    Optional text embeddings: [N, 384] from sentence-transformers
+
+    Args:
+        hidden_channels: Hidden dimension for all projections
+        text_dim: Dimension of input text embeddings (default: 384 for all-MiniLM-L6-v2)
+        max_thoughts: Maximum number of thoughts for positional encoding
+    """
+
+    def __init__(self, hidden_channels: int, text_dim: int = 384, max_thoughts: int = 5000):
+        super().__init__()
+        self.hidden_channels = hidden_channels
+        self.text_dim = text_dim
+
+        # 1. Structural Features: Project continuous values instead of embedding indices
+        # We project [level, in_degree, out_degree] (3 values) -> hidden_channels
+        self.structure_encoder = nn.Sequential(
+            nn.Linear(3, hidden_channels),
+            nn.ReLU(),
+            nn.Linear(hidden_channels, hidden_channels)
+        )
+
+        # 2. Text Features: Project text embeddings down to hidden_channels
+        self.text_proj = nn.Linear(text_dim, hidden_channels)
+
+        # 3. Positional Encoding with learnable scale
+        self.pe_scale = nn.Parameter(torch.tensor(1.0))
+
+        # Build sinusoidal PE
+        pe = torch.zeros(max_thoughts, hidden_channels)
+        position = torch.arange(0, max_thoughts, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, hidden_channels, 2).float() * (-math.log(10000.0) / hidden_channels))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+        # 4. LayerNorm is CRITICAL for summing distinct feature types
+        self.norm = nn.LayerNorm(hidden_channels)
+
+    def forward(self, x_struct: torch.Tensor, x_text: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Args:
+            x_struct: [N, 4] -> (level, in_degree, out_degree, thought_index)
+            x_text: Optional [N, text_dim] text embeddings (default: None)
+
+        Returns:
+            [N, hidden_channels] node embeddings
+        """
+        # 1. Structure: Log-normalize inputs to squash outliers
+        level = torch.log1p(x_struct[:, 0].float()).unsqueeze(1)
+        in_deg = torch.log1p(x_struct[:, 1].float()).unsqueeze(1)
+        out_deg = torch.log1p(x_struct[:, 2].float()).unsqueeze(1)
+
+        struct_emb = self.structure_encoder(torch.cat([level, in_deg, out_deg], dim=1))
+
+        # 2. Position with learnable scale
+        thought_idx = x_struct[:, 3].long().clamp(0, self.pe.size(0) - 1)
+        pos_emb = self.pe[thought_idx] * self.pe_scale
+
+        # 3. Text embedding (if provided)
+        if x_text is not None:
+            text_emb = self.text_proj(x_text)
+            # Additive fusion of all three modalities
+            out = struct_emb + pos_emb + text_emb
+        else:
+            # Fallback to structural + positional only
+            out = struct_emb + pos_emb
+
+        # 4. Normalize the combined features
+        return self.norm(out)
+
+
+class TextAwareGraphNodeEncoder(nn.Module):
+    """
+    A robust node encoder for graph format that combines structural features with text embeddings.
+
+    This encoder:
+    1. Projects structural features (degrees) through MLP with log-normalization to handle outliers
+    2. Uses sinusoidal PE for node_id with learnable scale
+    3. Projects text embeddings (384-dim) down to hidden_dim
+    4. Uses additive fusion: struct_emb + pos_emb + text_emb
+    5. Uses LayerNorm to stabilize the sum of different feature types
+
+    For use with 'graph' format: [node_id, out_degree, in_degree]
+    Optional text embeddings: [N, 384] from sentence-transformers
+
+    Args:
+        hidden_channels: Hidden dimension for all projections
+        text_dim: Dimension of input text embeddings (default: 384 for all-MiniLM-L6-v2)
+        max_nodes: Maximum number of nodes for positional encoding
+    """
+
+    def __init__(self, hidden_channels: int, text_dim: int = 384, max_nodes: int = 5000):
+        super().__init__()
+        self.hidden_channels = hidden_channels
+        self.text_dim = text_dim
+
+        # 1. Structural Features: Project degrees through MLP
+        # [out_degree, in_degree] (2 values) -> hidden_channels
+        self.degree_encoder = nn.Sequential(
+            nn.Linear(2, hidden_channels),
+            nn.ReLU(),
+            nn.Linear(hidden_channels, hidden_channels)
+        )
+
+        # 2. Text Features: Project text embeddings down to hidden_channels
+        self.text_proj = nn.Linear(text_dim, hidden_channels)
+
+        # 3. Positional Encoding with learnable scale for node_id
+        self.pe_scale = nn.Parameter(torch.tensor(1.0))
+
+        # Build sinusoidal PE
+        pe = torch.zeros(max_nodes, hidden_channels)
+        position = torch.arange(0, max_nodes, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, hidden_channels, 2).float() * (-math.log(10000.0) / hidden_channels))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+        # 4. LayerNorm for combining features
+        self.norm = nn.LayerNorm(hidden_channels)
+
+    def forward(self, x_struct: torch.Tensor, x_text: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Args:
+            x_struct: [N, 3] -> (node_id, out_degree, in_degree)
+            x_text: Optional [N, text_dim] text embeddings (default: None)
+
+        Returns:
+            [N, hidden_channels] node embeddings
+        """
+        # 1. Degrees: Log-normalize to squash outliers
+        out_deg = torch.log1p(x_struct[:, 1].float()).unsqueeze(1)
+        in_deg = torch.log1p(x_struct[:, 2].float()).unsqueeze(1)
+
+        degree_emb = self.degree_encoder(torch.cat([out_deg, in_deg], dim=1))
+
+        # 2. Node position with learnable scale
+        node_id = x_struct[:, 0].long().clamp(0, self.pe.size(0) - 1)
+        pos_emb = self.pe[node_id] * self.pe_scale
+
+        # 3. Text embedding (if provided)
+        if x_text is not None:
+            text_emb = self.text_proj(x_text)
+            # Additive fusion of all three modalities
+            out = degree_emb + pos_emb + text_emb
+        else:
+            # Fallback to structural + positional only
+            out = degree_emb + pos_emb
+
+        # 4. Normalize the combined features
+        return self.norm(out)
+
+
 class HeteroGINConv(nn.Module):
     """
     Heterogeneous GIN convolution layer.
@@ -260,8 +427,8 @@ class HeteroGraphClassifier(nn.Module):
         conv_type: Type of convolution - "gin" or "gat"
         dropout: Dropout rate
         pool: Pooling method - "mean" or "add"
-        encoder_type: Type of node encoder - "tree" for NodeEncoder, "graph" for GraphNodeEncoder
-        
+        encoder_type: Type of node encoder - "tree" for NodeEncoder, "graph" for GraphNodeEncoder, "robust" for RobustNodeEncoder, "text_aware" for TextAwareNodeEncoder, "text_aware_graph" for TextAwareGraphNodeEncoder
+
     Example:
         >>> # Get edge types from a sample graph
         >>> sample = dataset[0]
@@ -307,6 +474,10 @@ class HeteroGraphClassifier(nn.Module):
                 self.node_encoder = GraphNodeEncoder(hidden_channels)
             elif encoder_type == "robust":
                 self.node_encoder = RobustNodeEncoder(hidden_channels)
+            elif encoder_type == "text_aware":
+                self.node_encoder = TextAwareNodeEncoder(hidden_channels)
+            elif encoder_type == "text_aware_graph":
+                self.node_encoder = TextAwareGraphNodeEncoder(hidden_channels)
             else:
                 self.node_encoder = NodeEncoder(hidden_channels)
             self.input_lin = None
@@ -366,7 +537,15 @@ class HeteroGraphClassifier(nn.Module):
         
         # Input projection
         if self.node_encoder is not None:
-            x_dict = {key: self.node_encoder(x) for key, x in x_dict.items()}
+            # Handle TextAwareNodeEncoder which needs both structural and text features
+            if isinstance(self.node_encoder, TextAwareNodeEncoder):
+                x_dict = {}
+                for key, x in data.node_types:
+                    x_struct = data[key].x
+                    x_text = getattr(data[key], 'x_text', None)
+                    x_dict[key] = self.node_encoder(x_struct, x_text)
+            else:
+                x_dict = {key: self.node_encoder(x) for key, x in x_dict.items()}
         else:
             x_dict = {key: self.input_lin(x) for key, x in x_dict.items()}
         
@@ -428,7 +607,7 @@ class SimpleHeteroGNN(nn.Module):
         out_channels: Number of output classes
         num_layers: Number of GIN layers
         dropout: Dropout rate
-        encoder_type: Type of node encoder - "tree" for NodeEncoder, "graph" for GraphNodeEncoder
+        encoder_type: Type of node encoder - "tree" for NodeEncoder, "graph" for GraphNodeEncoder, "robust" for RobustNodeEncoder, "text_aware" for TextAwareNodeEncoder, "text_aware_graph" for TextAwareGraphNodeEncoder
     """
     
     def __init__(
@@ -456,6 +635,10 @@ class SimpleHeteroGNN(nn.Module):
                 self.node_encoder = GraphNodeEncoder(hidden_channels)
             elif encoder_type == "robust":
                 self.node_encoder = RobustNodeEncoder(hidden_channels)
+            elif encoder_type == "text_aware":
+                self.node_encoder = TextAwareNodeEncoder(hidden_channels)
+            elif encoder_type == "text_aware_graph":
+                self.node_encoder = TextAwareGraphNodeEncoder(hidden_channels)
             else:
                 self.node_encoder = NodeEncoder(hidden_channels)
             mlp_in_channels = hidden_channels
@@ -521,7 +704,11 @@ class SimpleHeteroGNN(nn.Module):
         
         # Apply encoder if enabled
         if self.node_encoder is not None:
-            x = self.node_encoder(x)
+            if isinstance(self.node_encoder, TextAwareNodeEncoder):
+                x_text = getattr(data["thought"], 'x_text', None)
+                x = self.node_encoder(x, x_text)
+            else:
+                x = self.node_encoder(x)
         
         # Combine all edge types into single edge_index
         # Only use forward edges (not reverse) to avoid duplicates
@@ -583,7 +770,7 @@ def create_model(
             - dropout: Dropout rate
             - pool: Pooling method (hetero models only)
             - use_node_encoder: Whether to use learned node encoder
-            - encoder_type: "tree" for NodeEncoder, "graph" for GraphNodeEncoder
+            - encoder_type: "tree" for NodeEncoder, "graph" for GraphNodeEncoder, "robust" for RobustNodeEncoder, "text_aware" for TextAwareNodeEncoder, "text_aware_graph" for TextAwareGraphNodeEncoder
         
     Returns:
         Initialized model

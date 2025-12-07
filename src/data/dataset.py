@@ -5,6 +5,7 @@ import os
 import os.path as osp
 from typing import Dict, List, Tuple, Optional, Any, Callable, Union
 from collections import defaultdict
+from pathlib import Path
 
 import torch
 from torch_geometric.data import HeteroData, InMemoryDataset, download_url, Dataset
@@ -106,29 +107,31 @@ def _reconstruct_graph(data: Dict, slices: Dict, idx: int) -> HeteroData:
 class PreProcessedDataset(Dataset):
     """
     Dataset wrapper for pre-processed .pt files.
-    
+
     This provides a PyTorch Geometric Dataset interface for already-processed
     graph data, enabling use with DataLoader and other PyG utilities.
-    
+
     Args:
         pt_filepath: Path to the .pt file containing processed graphs
         transform: Optional transform to apply to each graph
-        
+        embedding_dir: Optional directory containing thought_embeddings.pt and embedding_index.json
+
     Example:
         >>> dataset = PreProcessedDataset('./data/processed/deepseek/amc-aime/undirected/processed/final_regraded_with_rev.pt')
         >>> len(dataset)
         1000
         >>> loader = DataLoader(dataset, batch_size=32)
     """
-    
+
     def __init__(
         self,
         pt_filepath: str,
         transform: Optional[Callable] = None,
+        embedding_dir: Optional[str] = None,
     ):
         self.pt_filepath = osp.abspath(pt_filepath)
         super().__init__(root=None, transform=transform)
-        
+
         # Load the collated data and slices
         # PyG InMemoryDataset saves as (data_dict, slices_dict, data_cls)
         loaded = torch.load(self.pt_filepath, weights_only=False)
@@ -138,16 +141,57 @@ class PreProcessedDataset(Dataset):
             self._data, self._slices = loaded
         else:
             raise ValueError(f"Unexpected format in {pt_filepath}")
-        
+
         # Determine number of graphs from slices
         self._num_graphs = len(self._slices['y']) - 1
+
+        # Load embeddings if available
+        self.embeddings = None
+        self.emb_index = None
+        if embedding_dir:
+            emb_dir_path = Path(embedding_dir)
+            emb_path = emb_dir_path / "thought_embeddings.pt"
+            idx_path = emb_dir_path / "embedding_index.json"
+
+            if emb_path.exists() and idx_path.exists():
+                print(f"Loading embeddings from {emb_path}")
+                self.embeddings = torch.load(emb_path, map_location='cpu', weights_only=False)
+                with open(idx_path, 'r') as f:
+                    self.emb_index = json.load(f)
+                print(f"Loaded {self.embeddings.shape[0]} embeddings with dim {self.embeddings.shape[1]}")
+            else:
+                print(f"Warning: Embedding files not found in {embedding_dir}")
+                print(f"  Expected: {emb_path} and {idx_path}")
     
     def len(self) -> int:
         return self._num_graphs
     
     def get(self, idx: int) -> HeteroData:
         """Get a single graph by index."""
-        return _reconstruct_graph(self._data, self._slices, idx)
+        graph = _reconstruct_graph(self._data, self._slices, idx)
+
+        # Attach text embeddings if available
+        if self.embeddings is not None and self.emb_index is not None:
+            if str(idx) in self.emb_index:
+                node_indices = self.emb_index[str(idx)]
+                num_nodes = graph["thought"].num_nodes
+
+                # Build list of global indices for this graph's nodes
+                global_indices = []
+                for node_idx in range(num_nodes):
+                    if str(node_idx) in node_indices:
+                        global_indices.append(node_indices[str(node_idx)])
+                    else:
+                        # Fallback: use the last available index or 0
+                        if global_indices:
+                            global_indices.append(global_indices[-1])
+                        else:
+                            global_indices.append(0)
+
+                # Attach embeddings to graph
+                graph["thought"].x_text = self.embeddings[global_indices]
+
+        return graph
     
     def get_summary(self) -> Dict[str, Any]:
         """Get summary statistics of the dataset."""

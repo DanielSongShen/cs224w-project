@@ -19,6 +19,20 @@ Usage:
         --batch-size 32 \
         --lr 0.001
 
+    # With text embeddings for tree format (after running 03_precompute_embeddings.py)
+    python scripts/02_train_model.py \
+        --pt-file ./data/processed/deepseek/cn_k12/directed/final.pt \
+        --embedding-dir ./data/processed/deepseek/cn_k12/ \
+        --encoder-type text_aware \
+        --model-type simple_gin
+
+    # With text embeddings for graph format (after running 03_precompute_embeddings.py)
+    python scripts/02_train_model.py \
+        --pt-file ./data/processed/deepseek/cn_k12/graph_format/final.pt \
+        --embedding-dir ./data/processed/deepseek/cn_k12/ \
+        --encoder-type text_aware_graph \
+        --model-type simple_gin
+
     # Cross-validation
     python scripts/02_train_model.py \
         --pt-file ./data/processed/deepseek/amc-aime/undirected/processed/final_regraded_with_rev.pt \
@@ -87,7 +101,13 @@ def main():
         action="store_true",
         help="Force reprocessing of dataset even if cached (only used with --raw-filepath)",
     )
-    
+    parser.add_argument(
+        "--embedding-dir",
+        type=str,
+        default=None,
+        help="Directory containing thought_embeddings.pt and embedding_index.json (for text-aware encoding)",
+    )
+
     # Model arguments
     parser.add_argument(
         "--model-type",
@@ -123,8 +143,8 @@ def main():
         "--encoder-type",
         type=str,
         default="tree",
-        choices=["tree", "graph", "robust"],
-        help="Node encoder type: 'tree' (embedding), 'graph' (for graph format), 'robust' (MLP + LayerNorm) (default: tree)",
+        choices=["tree", "graph", "robust", "text_aware", "text_aware_graph"],
+        help="Node encoder type: 'tree' (embedding), 'graph' (for graph format), 'robust' (MLP + LayerNorm), 'text_aware' (with sentence embeddings for tree format), 'text_aware_graph' (with sentence embeddings for graph format) (default: tree)",
     )
     parser.add_argument(
         "--pool",
@@ -241,7 +261,9 @@ def main():
     # Load dataset
     if args.pt_file:
         print(f"\nLoading pre-processed dataset from: {args.pt_file}")
-        dataset = PreProcessedDataset(args.pt_file)
+        if args.embedding_dir:
+            print(f"Loading text embeddings from: {args.embedding_dir}")
+        dataset = PreProcessedDataset(args.pt_file, embedding_dir=args.embedding_dir)
     else:
         print(f"\nLoading dataset from: {args.raw_filepath}")
         dataset = ReasoningTraceDataset(

@@ -17,7 +17,7 @@ spacy==3.7.2
 sacrebleu
 rouge_score==0.1.2
 sentencepiece>=0.1.99
-protobuf==3.20.* 
+protobuf==3.20.*
 pycountry
 fsspec>=2023.12.2
 vllm>=0.7.0
@@ -30,3 +30,4 @@ matplotlib>=3.5.0
 seaborn>=0.11.0
 pyyaml>=6.0
 torch_geometric
+sentence-transformers>=2.2.0

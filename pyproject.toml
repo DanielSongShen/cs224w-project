@@ -15,6 +15,7 @@ networkx = "^3.5"
 matplotlib = "^3.10.7"
 torch-geometric = "^2.7.0"
 scikit-learn = "^1.7.2"
+sentence-transformers = "^5.1.2"
 
 
 [build-system]
