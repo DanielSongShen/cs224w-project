@@ -232,3 +232,4 @@ runs/
 lightning_logs/
 
 config.json
+archive/*
