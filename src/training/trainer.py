@@ -199,6 +199,7 @@ class GraphClassificationTrainer:
                 w_0 = total / (2 * count_0)
                 w_1 = total / (2 * count_1)
                 weight = torch.tensor([w_0, w_1]).to(self.device)
+                #weight = torch.tensor([2.0, 1.0]).to(self.device)  # Temporary fix for the math dataset.
                 self.criterion = nn.CrossEntropyLoss(weight=weight)
             else:
                 self.criterion = nn.CrossEntropyLoss()

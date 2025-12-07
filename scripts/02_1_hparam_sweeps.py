@@ -61,13 +61,14 @@ DATASET_PATHS = {
     "amc-aime": "./data/processed/deepseek/amc-aime/undirected/final_regraded_with_rev.pt",
     "olympiads": "./data/processed/deepseek/olympiads/undirected/final_regraded_with_rev.pt",
     "orca-math": "./data/processed/deepseek/orca-math/undirected/final_regraded_with_rev.pt",
-    "combined": "./data/processed/deepseek/orca-math/undirected/encoder/final_regraded_with_rev.pt"
+    "combined": "./data/processed/deepseek/orca-math/undirected/encoder/final_regraded_with_rev.pt",
+    "math_balanced": "./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt"
 }
 
 # Hyperparameter search spaces
 HPARAM_GRID = {
-    "hidden_channels": [32, 64],
-    "num_layers": [3, 5],
+    "hidden_channels": [32],
+    "num_layers": [1, 3, 5],
     "dropout": [0.1, 0.5],
     "learning_rate": [1e-3],
     "batch_size": [32],

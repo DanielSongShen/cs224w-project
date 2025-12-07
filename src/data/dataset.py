@@ -267,12 +267,111 @@ def _traverse_tree(
         _traverse_tree(child, node_list, edges_by_type, node_id_map)
 
 
-def convert_json_to_hetero_graph(
+def _convert_reasoning_graph(
     data: Dict[str, Any],
     include_reverse_edges: bool = True,
 ) -> HeteroData:
     """
-    Convert a JSON object from the LCoT2Tree format to a heterogeneous PyTorch Geometric graph.
+    Convert a JSON object with explicit reasoning_graph format to HeteroData.
+    
+    The reasoning_graph format has explicit nodes and edges arrays:
+        - nodes: list of node IDs
+        - edges: list of {source, target, category} objects
+    
+    Node features are derived from graph structure: [node_id, out_degree, in_degree]
+    
+    Args:
+        data: JSON object containing 'reasoning_graph' and 'score'
+        include_reverse_edges: Whether to add reverse edges for message passing
+        
+    Returns:
+        HeteroData object with node features and typed edges
+    """
+    reasoning_graph = data["reasoning_graph"]
+    nodes = reasoning_graph["nodes"]
+    edges = reasoning_graph["edges"]
+    score = data.get("score", "0")
+    
+    # Convert score to integer label
+    label = int(score) if isinstance(score, (int, float)) else int(score == "1")
+    
+    num_nodes = len(nodes)
+    
+    # Build node ID mapping (in case nodes aren't 0-indexed consecutively)
+    node_id_map = {node_id: idx for idx, node_id in enumerate(nodes)}
+    
+    # Compute in-degree and out-degree for each node
+    out_degree = defaultdict(int)
+    in_degree = defaultdict(int)
+    
+    # Group edges by category
+    edges_by_type: Dict[str, List[Tuple[int, int]]] = defaultdict(list)
+    
+    for edge in edges:
+        src = node_id_map[edge["source"]]
+        dst = node_id_map[edge["target"]]
+        category = edge["category"]
+        
+        out_degree[src] += 1
+        in_degree[dst] += 1
+        
+        edge_type = CATEGORY_TO_EDGE_TYPE.get(category, "continuous_logic")
+        edges_by_type[edge_type].append((src, dst))
+    
+    # Create HeteroData object
+    hetero_data = HeteroData()
+    
+    # Node features: [node_id, out_degree, in_degree]
+    node_features = []
+    for idx, node_id in enumerate(nodes):
+        node_features.append([
+            node_id,
+            out_degree[idx],
+            in_degree[idx],
+        ])
+    
+    hetero_data["thought"].x = torch.tensor(node_features, dtype=torch.long)
+    hetero_data["thought"].num_nodes = num_nodes
+    
+    # Add edges for each type
+    # IMPORTANT: All graphs must have identical edge type schemas for InMemoryDataset
+    # to correctly collate and separate them. Always add all edge types, even if empty.
+    for edge_type_name in CATEGORY_TO_EDGE_TYPE.values():
+        type_edges = edges_by_type.get(edge_type_name, [])
+
+        if type_edges:
+            src_nodes = [e[0] for e in type_edges]
+            dst_nodes = [e[1] for e in type_edges]
+            edge_index = torch.tensor([src_nodes, dst_nodes], dtype=torch.long)
+            reverse_edge_index = torch.tensor([dst_nodes, src_nodes], dtype=torch.long)
+        else:
+            # Empty edge index - still must be added for consistent schema
+            edge_index = torch.zeros((2, 0), dtype=torch.long)
+            reverse_edge_index = torch.zeros((2, 0), dtype=torch.long)
+        
+        hetero_data["thought", edge_type_name, "thought"].edge_index = edge_index
+        
+        # Always add reverse edges for consistent schema (even if empty)
+        if include_reverse_edges:
+            hetero_data["thought", f"rev_{edge_type_name}", "thought"].edge_index = reverse_edge_index
+    
+    # Store label as graph-level attribute
+    hetero_data.y = torch.tensor([label], dtype=torch.long)
+    
+    return hetero_data
+
+
+def convert_json_to_hetero_graph(
+    data: Dict[str, Any],
+    include_reverse_edges: bool = True,
+    format: str = "tree",
+) -> HeteroData:
+    """
+    Convert a JSON object to a heterogeneous PyTorch Geometric graph.
+    
+    Supports two formats:
+        - "tree": LCoT2Tree format with 'cot_tree' (tree traversal)
+        - "graph": Explicit 'reasoning_graph' with nodes/edges arrays
     
     The graph has a single node type "thought" and multiple edge types based on
     the relationship category between thoughts:
@@ -283,12 +382,19 @@ def convert_json_to_hetero_graph(
         - validation: Supporting evidence/justification (cate=4)
     
     Args:
-        data: JSON object containing 'cot_tree', 'thoughts_list', and 'score'
+        data: JSON object containing graph data
         include_reverse_edges: Whether to add reverse edges for message passing
+        format: "tree" for cot_tree format, "graph" for reasoning_graph format
         
     Returns:
         HeteroData object with node features and typed edges
     """
+    if format == "graph":
+        return _convert_reasoning_graph(data, include_reverse_edges)
+    elif format != "tree":
+        raise ValueError(f"Unknown format: {format}. Use 'tree' or 'graph'.")
+    
+    # Tree format (original implementation)
     cot_tree = data["cot_tree"]
     thoughts_list = data.get("thoughts_list", {})
     score = data.get("score", "0")
@@ -352,6 +458,7 @@ def convert_json_to_hetero_graph(
 def load_jsonl_to_graphs(
     filepath: str,
     include_reverse_edges: bool = True,
+    format: str = "tree",
 ) -> List[HeteroData]:
     """
     Load a JSONL file and convert each line to a HeteroData graph.
@@ -359,6 +466,7 @@ def load_jsonl_to_graphs(
     Args:
         filepath: Path to JSONL file
         include_reverse_edges: Whether to add reverse edges
+        format: "tree" for cot_tree format, "graph" for reasoning_graph format
         
     Returns:
         List of HeteroData objects
@@ -372,7 +480,7 @@ def load_jsonl_to_graphs(
                 continue
             try:
                 data = json.loads(line)
-                graph = convert_json_to_hetero_graph(data, include_reverse_edges)
+                graph = convert_json_to_hetero_graph(data, include_reverse_edges, format)
                 graphs.append(graph)
             except (json.JSONDecodeError, KeyError) as e:
                 print(f"Warning: Failed to parse line: {e}")
@@ -393,6 +501,7 @@ class ReasoningTraceDataset(InMemoryDataset):
         raw_filepath: Path to the raw JSONL file containing reasoning traces.
         include_reverse_edges: Whether to include reverse edges for bidirectional 
             message passing. Default: True
+        format: JSON format - "tree" for cot_tree, "graph" for reasoning_graph. Default: "tree"
         transform: A function/transform that takes in a Data object and returns a 
             transformed version. Default: None
         pre_transform: A function/transform that takes in a Data object and returns a
@@ -418,6 +527,7 @@ class ReasoningTraceDataset(InMemoryDataset):
         root: str,
         raw_filepath: str,
         include_reverse_edges: bool = True,
+        format: str = "tree",
         transform: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         pre_filter: Optional[Callable] = None,
@@ -425,6 +535,7 @@ class ReasoningTraceDataset(InMemoryDataset):
     ):
         self.raw_filepath = osp.abspath(raw_filepath)
         self.include_reverse_edges = include_reverse_edges
+        self.format = format
         
         # Store the raw filename for processed file naming
         # Handle both .json and .jsonl extensions properly
@@ -472,6 +583,7 @@ class ReasoningTraceDataset(InMemoryDataset):
         data_list = load_jsonl_to_graphs(
             self.raw_filepath,
             include_reverse_edges=self.include_reverse_edges,
+            format=self.format,
         )
         
         print(f"Loaded {len(data_list)} graphs")
@@ -721,16 +833,25 @@ if __name__ == "__main__":
         action="store_true",
         help="Force reprocessing even if processed file exists"
     )
+    parser.add_argument(
+        "--format",
+        type=str,
+        choices=["tree", "graph"],
+        default="tree",
+        help="JSON format: 'tree' for cot_tree, 'graph' for reasoning_graph (default: tree)"
+    )
     
     args = parser.parse_args()
     
     print(f"Building dataset from {args.raw_filepath}")
     print(f"Saving to {args.root}")
+    print(f"Format: {args.format}")
     
     dataset = ReasoningTraceDataset(
         root=args.root,
         raw_filepath=args.raw_filepath,
         include_reverse_edges=not args.no_reverse_edges,
+        format=args.format,
         force_reload=args.force_reload,
     )
     

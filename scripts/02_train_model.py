@@ -99,7 +99,7 @@ def main():
     parser.add_argument(
         "--hidden-channels",
         type=int,
-        default=16,
+        default=32,
         help="Hidden layer dimension",
     )
     parser.add_argument(
@@ -118,6 +118,13 @@ def main():
         "--no-node-encoder",
         action="store_true",
         help="Disable learned node encoder (use raw features with linear projection)",
+    )
+    parser.add_argument(
+        "--encoder-type",
+        type=str,
+        default="tree",
+        choices=["tree", "graph"],
+        help="Node encoder type: 'tree' for [level,cate,thought_idx], 'graph' for [node_id,out_deg,in_deg] (default: tree)",
     )
     parser.add_argument(
         "--pool",
@@ -292,6 +299,7 @@ def main():
                 dropout=args.dropout,
                 pool=args.pool,
                 use_node_encoder=not args.no_node_encoder,
+                encoder_type=args.encoder_type,
             )
         
         cv_results = train_with_cross_validation(
@@ -355,6 +363,7 @@ def main():
             dropout=args.dropout,
             pool=args.pool,
             use_node_encoder=not args.no_node_encoder,
+            encoder_type=args.encoder_type,
         )
         
         num_params = sum(p.numel() for p in model.parameters())
