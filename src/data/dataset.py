@@ -159,17 +159,26 @@ class PreProcessedDataset(Dataset):
         # Collect statistics in a single pass
         labels_list = []
         num_nodes_list = []
+        total_edges_list = []
         edge_counts = defaultdict(list)
         
         for i in range(num_graphs):
             data = self[i]
             labels_list.append(data.y.item())
-            num_nodes_list.append(data["thought"].num_nodes if hasattr(data["thought"], "num_nodes") else data["thought"].x.shape[0])
+            num_nodes = data["thought"].num_nodes if hasattr(data["thought"], "num_nodes") else data["thought"].x.shape[0]
+            num_nodes_list.append(num_nodes)
+            total_edges = 0
             for edge_type in data.edge_types:
-                edge_counts[edge_type].append(data[edge_type].edge_index.shape[1])
+                num_edges = data[edge_type].edge_index.shape[1]
+                edge_counts[edge_type].append(num_edges)
+                total_edges += num_edges
+            total_edges_list.append(total_edges)
         
         num_positive = sum(labels_list)
         num_negative = num_graphs - num_positive
+        
+        # Calculate edges per node for each graph
+        edges_per_node = [e / n if n > 0 else 0 for e, n in zip(total_edges_list, num_nodes_list)]
         
         return {
             "num_graphs": num_graphs,
@@ -179,6 +188,12 @@ class PreProcessedDataset(Dataset):
             "avg_nodes": sum(num_nodes_list) / num_graphs,
             "min_nodes": min(num_nodes_list),
             "max_nodes": max(num_nodes_list),
+            "avg_edges": sum(total_edges_list) / num_graphs,
+            "min_edges": min(total_edges_list),
+            "max_edges": max(total_edges_list),
+            "avg_edges_per_node": sum(edges_per_node) / num_graphs,
+            "min_edges_per_node": min(edges_per_node),
+            "max_edges_per_node": max(edges_per_node),
             "edge_types": list(edge_counts.keys()),
             "avg_edges_per_type": {
                 str(k): sum(v) / len(v) for k, v in edge_counts.items()
@@ -484,6 +499,7 @@ class ReasoningTraceDataset(InMemoryDataset):
         # Collect statistics in a single pass
         labels_list = []
         num_nodes_list = []
+        total_edges_list = []
         edge_counts = defaultdict(list)
         
         for i in range(num_graphs):
@@ -492,12 +508,20 @@ class ReasoningTraceDataset(InMemoryDataset):
             except:
                 breakpoint()
             labels_list.append(data.y.item())
-            num_nodes_list.append(data["thought"].num_nodes)
+            num_nodes = data["thought"].num_nodes
+            num_nodes_list.append(num_nodes)
+            total_edges = 0
             for edge_type in data.edge_types:
-                edge_counts[edge_type].append(data[edge_type].edge_index.shape[1])
+                num_edges = data[edge_type].edge_index.shape[1]
+                edge_counts[edge_type].append(num_edges)
+                total_edges += num_edges
+            total_edges_list.append(total_edges)
         
         num_positive = sum(labels_list)
         num_negative = num_graphs - num_positive
+        
+        # Calculate edges per node for each graph
+        edges_per_node = [e / n if n > 0 else 0 for e, n in zip(total_edges_list, num_nodes_list)]
         
         return {
             "num_graphs": num_graphs,
@@ -507,6 +531,12 @@ class ReasoningTraceDataset(InMemoryDataset):
             "avg_nodes": sum(num_nodes_list) / num_graphs,
             "min_nodes": min(num_nodes_list),
             "max_nodes": max(num_nodes_list),
+            "avg_edges": sum(total_edges_list) / num_graphs,
+            "min_edges": min(total_edges_list),
+            "max_edges": max(total_edges_list),
+            "avg_edges_per_node": sum(edges_per_node) / num_graphs,
+            "min_edges_per_node": min(edges_per_node),
+            "max_edges_per_node": max(edges_per_node),
             "edge_types": list(edge_counts.keys()),
             "avg_edges_per_type": {
                 str(k): sum(v) / len(v) for k, v in edge_counts.items()
