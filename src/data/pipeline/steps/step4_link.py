@@ -4,11 +4,12 @@ The most expensive step. Implements:
 - Prefix Caching Optimization (static data first in JSON)
 - Incremental Saving (immediate write-and-flush)
 - Robust Fallback (gap bridging + LCoT structural)
+- Async Support (batched processing like Steps 2 & 3)
 """
 import json
 import time
+import asyncio
 import concurrent.futures
-from concurrent.futures import as_completed
 from typing import List, Dict, Any
 from pathlib import Path
 
@@ -36,24 +37,23 @@ def process_link(
     llm_client,
     output_dir: Path,
     max_workers: int = 50,
+    use_async: bool = False,
+    batch_size: int = 10,
     debug: bool = False
 ) -> List[Dict[str, Any]]:
     """
     Assign parent relationships for each thought.
     
-    OPTIMIZED: Comparison between High-Level Steps with Robust Fallback.
-    - Coverage Guarantee: Ensures all thoughts are assigned to steps
-    - Gap Bridging: Finds nearest non-empty previous step
-    - LCoT Structural Fallback: Connects to anchor of previous step
-    - Prefix Caching: Static candidates first in JSON payload
-    - Incremental Saving: Immediate write-and-flush on completion
+    Follows same pattern as Steps 2-3 but with incremental saving.
     
     Args:
         input_data: Items with 'thoughts_list' and 'assigned_step'
         llm_client: LLM client instance
         output_dir: Directory to save intermediate results
-        max_workers: Number of parallel workers
-        debug: Enable detailed debug logging
+        max_workers: Number of parallel workers (sync mode)
+        use_async: Whether to use async batch processing
+        batch_size: Batch size for async processing
+        debug: Enable debug logging
     
     Returns:
         Items with added 'thought_relations' field
@@ -78,68 +78,136 @@ def process_link(
     # FILTER: Only process what isn't done
     queue = [item for item in input_data if item['tag'] not in processed_tags]
     
-    print(f"Resuming Step 4. Found {len(processed_tags)} done, {len(queue)} remaining.")
+    print(f"Processing {len(queue)} items ({len(processed_tags)} already done)")
     
     if not queue:
         print("All items already processed!")
+        # Save final consolidated file
+        output_path = output_dir / "process4.json"
+        save_jsonl(results, output_path)
         return results
     
-    # EXECUTION: Process with immediate write on completion
-    # Open in 'a' (append) mode to preserve previous progress
-    with open(incremental_path, 'a', encoding='utf-8') as f_out:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            futures = {
-                executor.submit(_process_single_item, item, llm_client, debug): item 
-                for item in queue
-            }
-            
-            # Process completions as they arrive
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    results.append(result)
-                    
-                    # IMMEDIATE SAVE & FLUSH
-                    f_out.write(json.dumps(result, ensure_ascii=False) + '\n')
-                    f_out.flush()
-                    
-                    if len(results) % 10 == 0:
-                        print(f"  Processed {len(results)}/{len(input_data)} items...")
-                
-                except Exception as e:
-                    original_item = futures[future]
-                    print(f"Error processing item {original_item.get('tag', 'unknown')}: {e}")
-                    import traceback
-                    traceback.print_exc()
+    # Define item processor (follows same pattern as steps 2-3)
+    def process_item(item):
+        return _process_single_item(item, llm_client, debug)
     
-    # Calculate statistics
-    elapsed = time.time() - start_time
-    total_api_calls = sum(
-        sum(len(targets) for targets in item.get("thought_relations", {}).values())
-        for item in results
-    )
+    # Process in parallel (sync or async) - SAME PATTERN AS STEPS 2-3
+    new_results = []
+    
+    if use_async:
+        # Async mode with batched processing
+        new_results = asyncio.run(_process_batch_async(
+            queue, process_item, batch_size, incremental_path
+        ))
+    else:
+        # Sync mode with thread pool
+        # Open file for incremental saving
+        with open(incremental_path, 'a', encoding='utf-8') as f_out:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all items
+                future_to_item = {
+                    executor.submit(process_item, item): item 
+                    for item in queue
+                }
+                
+                # Process as they complete
+                from concurrent.futures import as_completed
+                for future in as_completed(future_to_item):
+                    try:
+                        result = future.result()
+                        new_results.append(result)
+                        
+                        # INCREMENTAL SAVE (append + flush immediately)
+                        f_out.write(json.dumps(result, ensure_ascii=False) + '\n')
+                        f_out.flush()
+                        
+                        if len(new_results) % 10 == 0:
+                            total_done = len(processed_tags) + len(new_results)
+                            print(f"  Processed {total_done}/{len(input_data)} items...")
+                    
+                    except Exception as e:
+                        original_item = future_to_item[future]
+                        print(f"Error processing {original_item.get('tag', 'unknown')}: {e}")
+                        import traceback
+                        traceback.print_exc()
+    
+    # Combine results
+    results.extend(new_results)
     
     # Save final consolidated file
     output_path = output_dir / "process4.json"
     save_jsonl(results, output_path)
     
+    # Statistics
+    elapsed = time.time() - start_time
+    total_api_calls = sum(
+        sum(len(targets) for targets in item.get("thought_relations", {}).values())
+        for item in new_results
+    )
+    
     print(f"Saved {len(results)} items to {output_path}")
-    print(f"Total parent selection queries: {total_api_calls}")
+    print(f"New parent selection queries: {total_api_calls}")
     print(f"⏱️  Step 4 completed in {elapsed:.2f} seconds")
     
     return results
 
 
-def _process_single_item(item: Dict[str, Any], llm_client, debug: bool) -> Dict[str, Any]:
+async def _process_batch_async(
+    items: List[Dict[str, Any]], 
+    process_func, 
+    batch_size: int,
+    incremental_path: Path
+) -> List[Any]:
+    """
+    Process items in async batches - SAME PATTERN AS STEPS 2-3.
+    
+    Added: Incremental saving to file.
+    """
+    results = []
+    total = len(items)
+    
+    # Open file for incremental saving
+    with open(incremental_path, 'a', encoding='utf-8') as f_out:
+        for i in range(0, total, batch_size):
+            batch = items[i:i + batch_size]
+            batch_num = i // batch_size + 1
+            total_batches = (total + batch_size - 1) // batch_size
+            
+            print(f"Processing batch {batch_num}/{total_batches} ({len(batch)} items)...")
+            
+            # Process batch concurrently - SAME AS STEPS 2-3
+            batch_results = await asyncio.gather(*[
+                asyncio.to_thread(process_func, item)
+                for item in batch
+            ])
+            
+            # Save batch results immediately
+            for result in batch_results:
+                results.append(result)
+                f_out.write(json.dumps(result, ensure_ascii=False) + '\n')
+            
+            f_out.flush()
+    
+    return results
+
+
+def _process_single_item(
+    item: Dict[str, Any], 
+    llm_client, 
+    debug: bool
+) -> Dict[str, Any]:
     """
     Process a single item to assign parent relationships.
+    
+    This is the complex part with multiple LLM calls per item.
+    Uses an inner thread pool (5 workers) for queries.
     
     Implements:
     - Coverage guarantee (sanitization)
     - Gap bridging (find nearest non-empty previous step)
     - LCoT structural fallback (connect to anchor)
     - Prefix caching optimization
+    - Type normalization (handles old pipeline data)
     
     Args:
         item: Item with thoughts_list and assigned_step
@@ -159,10 +227,21 @@ def _process_single_item(item: Dict[str, Any], llm_client, debug: bool) -> Dict[
     # Get assigned_step mapping (thought_id -> [step_ids])
     assigned_step = item["assigned_step"]
     
+    # NORMALIZE: Convert string keys from JSON to integers
+    # This handles data from both old and new pipeline versions
+    clean_assigned = {}
+    for key, values in assigned_step.items():
+        clean_key = int(key) if not isinstance(key, int) else key
+        if not isinstance(values, list):
+            values = [values]
+        clean_values = [int(v) if not isinstance(v, int) else v for v in values]
+        clean_assigned[clean_key] = clean_values
+    
     # Build reverse mapping: step_id -> [thought_ids]
-    step_to_thoughts = build_step_to_thoughts_mapping(assigned_step)
+    step_to_thoughts = build_step_to_thoughts_mapping(clean_assigned)
     
     # --- COVERAGE GUARANTEE (Sanitization) ---
+    # Ensures every thought ID from 0 to N-1 is assigned to a step
     all_thought_ids = set(range(len(thoughts)))
     assigned_ids = set()
     for ids in step_to_thoughts.values():
@@ -201,18 +280,7 @@ def _process_single_item(item: Dict[str, Any], llm_client, debug: bool) -> Dict[
     reasoning_steps = extract_reasoning_dict(item.get("reasoning_sketch", ""))
     max_step = max(reasoning_steps.keys()) if reasoning_steps else 0
     
-    # Debug: Print step assignments
-    if debug:
-        print(f"\n{'='*70}")
-        print(f"DEBUG: Processing item '{item.get('tag', 'unknown')}'")
-        print(f"{'='*70}")
-        print(f"Total thoughts: {len(thoughts)}")
-        print(f"Step assignments:")
-        for step_id in sorted(step_to_thoughts.keys()):
-            thought_ids = sorted(step_to_thoughts[step_id])
-            print(f"  Step {step_id}: {thought_ids}")
-    
-    # Initialize relations structure: {parent_id: {child_id: category}}
+    # Initialize relations structure
     item["thought_relations"] = {}
     
     # Prepare all parent selection queries
@@ -231,53 +299,43 @@ def _process_single_item(item: Dict[str, Any], llm_client, debug: bool) -> Dict[
         thoughts_prev_step = step_to_thoughts.get(prev_step_n, [])
         thoughts_n = step_to_thoughts[step_n]
         
-        # Calculate anchor of previous step (last thought chronologically)
+        # Calculate anchor of previous step
         anchor_prev_step = max(thoughts_prev_step) if thoughts_prev_step else None
         
-        # For each thought in step N, find its parents from previous step
+        # For each thought in step N
         for thought_n in thoughts_n:
-            if thought_n == 0:  # Skip T0 (root node)
+            if thought_n == 0:  # Skip T0 (root)
                 continue
             if thought_n >= len(thoughts):
                 continue
             
-            text_n = thoughts[thought_n]
-            text_n = truncate_text(text_n, MAX_THOUGHT_LENGTH)
+            text_n = truncate_text(thoughts[thought_n], MAX_THOUGHT_LENGTH)
             
-            # Build candidate parents list
+            # Build candidate parents
             candidates = []
             for thought_prev in thoughts_prev_step:
                 if thought_prev >= len(thoughts):
                     continue
                 
-                text_prev = thoughts[thought_prev]
-                text_prev = truncate_text(text_prev, MAX_CANDIDATE_LENGTH)
-                
-                candidates.append({
-                    "id": thought_prev,
-                    "text": text_prev
-                })
+                text_prev = truncate_text(thoughts[thought_prev], MAX_CANDIDATE_LENGTH)
+                candidates.append({"id": thought_prev, "text": text_prev})
             
             if candidates:
-                # PREFIX CACHING OPTIMIZATION
-                # Move static 'candidates' to VERY FRONT of JSON
+                # PREFIX CACHING: Static data first
                 user_content = json.dumps({
-                    "candidate_parents": candidates,  # <--- STATIC CONTENT FIRST
-                    "step_n": step_n,                 # <--- DYNAMIC CONTENT LAST
+                    "candidate_parents": candidates,
+                    "step_n": step_n,
                     "current_thought": text_n
                 }, ensure_ascii=False)
                 
                 queries_to_process.append((
-                    thought_n, 
-                    candidates, 
-                    user_content, 
-                    step_n, 
-                    anchor_prev_step
+                    thought_n, candidates, user_content, anchor_prev_step
                 ))
     
-    # Process all queries in parallel
+    # Process queries with INNER THREAD POOL (5 workers)
     def find_parents(query_data):
-        thought_n, candidates, user_content, step_n, anchor_prev_step = query_data
+        thought_n, candidates, user_content, anchor_prev_step = query_data
+        
         try:
             messages = [
                 {"role": "system", "content": STEP4_SYSTEM_MESSAGE},
@@ -288,6 +346,7 @@ def _process_single_item(item: Dict[str, Any], llm_client, debug: bool) -> Dict[
             
             parents = []
             llm_selected = False
+            
             if parsed and "parents" in parsed:
                 for parent_info in parsed["parents"]:
                     parent_id = parent_info.get("id")
@@ -297,38 +356,34 @@ def _process_single_item(item: Dict[str, Any], llm_client, debug: bool) -> Dict[
                     if not any(c['id'] == parent_id for c in candidates):
                         continue
                     
-                    # Map category to integer
                     cat_num = CATEGORY_MAP.get(category, 1)
                     parents.append((parent_id, cat_num))
                     llm_selected = True
             
-            # --- LCoT STRUCTURAL FALLBACK ---
-            fallback_type = None
+            # LCoT STRUCTURAL FALLBACK
             if not parents and anchor_prev_step is not None:
-                parents.append((anchor_prev_step, 5))  # Category 5 = Default
-                fallback_type = "structural"
+                parents.append((anchor_prev_step, 5))
             elif not parents:
-                # Absolute fallback if no previous step anchor exists
                 parents.append((thought_n - 1, 5))
-                fallback_type = "chronological"
             
-            return thought_n, parents, in_tokens, out_tokens, cache_hits, llm_selected, fallback_type
+            return thought_n, parents, in_tokens, out_tokens, cache_hits
             
         except Exception as e:
             print(f"Error finding parents for thought {thought_n}: {e}")
-            # Fallback to anchor of previous step
             if anchor_prev_step is not None:
-                return thought_n, [(anchor_prev_step, 5)], 0, 0, 0, False, "structural_error"
+                return thought_n, [(anchor_prev_step, 5)], 0, 0, 0
             else:
-                return thought_n, [(thought_n - 1, 5)], 0, 0, 0, False, "chronological_error"
+                return thought_n, [(thought_n - 1, 5)], 0, 0, 0
     
-    # Execute in parallel
+    # Execute with controlled inner pool
     if queries_to_process:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(queries_to_process), 20)) as executor:
+        inner_workers = min(5, len(queries_to_process))
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=inner_workers) as executor:
             query_results = list(executor.map(find_parents, queries_to_process))
         
-        # Aggregate results into thought_relations
-        for thought_n, parents, in_tokens, out_tokens, cache_hits, llm_selected, fallback_type in query_results:
+        # Aggregate results
+        for thought_n, parents, in_tokens, out_tokens, cache_hits in query_results:
             for parent_id, category in parents:
                 if parent_id not in item["thought_relations"]:
                     item["thought_relations"][parent_id] = {}
