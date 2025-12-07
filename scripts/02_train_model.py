@@ -99,7 +99,7 @@ def main():
     parser.add_argument(
         "--hidden-channels",
         type=int,
-        default=32,
+        default=64,
         help="Hidden layer dimension",
     )
     parser.add_argument(
@@ -123,8 +123,8 @@ def main():
         "--encoder-type",
         type=str,
         default="tree",
-        choices=["tree", "graph"],
-        help="Node encoder type: 'tree' for [level,cate,thought_idx], 'graph' for [node_id,out_deg,in_deg] (default: tree)",
+        choices=["tree", "graph", "robust"],
+        help="Node encoder type: 'tree' (embedding), 'graph' (for graph format), 'robust' (MLP + LayerNorm) (default: tree)",
     )
     parser.add_argument(
         "--pool",

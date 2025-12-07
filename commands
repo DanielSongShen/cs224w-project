@@ -17,9 +17,18 @@ poetry run python scripts/01_parse_data.py \
     --balanced \
     --output_dir ./data/processed/deepseek/math_balanced
 
-# Generate 2000 balanced samples (1000 from cn_k12 + 1000 from aops_forum) TOOD Run
+# Generate 2000 balanced samples (1000 from cn_k12 + 1000 from aops_forum)
 poetry run python scripts/01_parse_data.py --n_samples 500 --sources cn_k12 --balanced --backend deepseek-v3.2 --async --output_dir ./data/processed/deepseek/cn_k12
 poetry run python scripts/01_parse_data.py --n_samples 500 --sources aops_forum --balanced --backend deepseek-v3.2 --async --output_dir ./data/processed/deepseek/aops_forum
+
+# Generate 1000 balanced graph samples
+poetry run python scripts/01_parse_new_data.py \
+    --n_samples 1 \
+    --sources math \
+    --balanced \
+    --backend deepseek-v3.2 \
+    --async \
+    --output_dir ./data/processed/deepseek/graph_math
 
 # Concatenate JSONL files
 mkdir -p ./data/processed/deepseek/combined2
@@ -32,8 +41,8 @@ cat ./data/processed/deepseek/aops_forum/final.json ./data/processed/deepseek/cn
 poetry run python scripts/00_fix_labels.py --input data/processed/deepseek/new_graphs_combined/final.json --output data/processed/deepseek/math/final_regraded.json
 
 # Generate graph dataset
-poetry run python src/data/dataset.py data/processed/deepseek/combined3/final_regraded.json --root ./data/processed/deepseek/combined3/directed --force-reload --no-reverse-edges
-poetry run python src/data/dataset.py data/processed/deepseek/combined3/final_regraded.json --root ./data/processed/deepseek/combined3/undirected --force-reload
+poetry run python src/data/dataset.py data/processed/deepseek/combined/final_regraded.json --root ./data/processed/deepseek/combinedNEW/directed --force-reload --no-reverse-edges
+poetry run python src/data/dataset.py data/processed/deepseek/combined/final_regraded.json --root ./data/processed/deepseek/combinedNEW/undirected --force-reload
 
 # Generate graph dataset from new reasoning_graph format (explicit nodes/edges)
 poetry run python src/data/dataset.py data/processed/deepseek/new_graphs_combined/final_regraded.json --root ./data/processed/deepseek/new_graphs_combined/undirected --format graph --force-reload
@@ -41,11 +50,14 @@ poetry run python src/data/dataset.py data/processed/deepseek/new_graphs_combine
 
 
 # Training
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/combined3/models/simple_gin --model-type simple_gin --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/directed/final_regraded_with_rev.pt --output-dir ./outputs/combined3/directed/models/simple_gin --model-type simple_gin --log-interval 1
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/combined3_64/models/simple_gin --model-type simple_gin --log-interval 1
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combinedNEW/directed/final_regraded.pt --output-dir ./outputs/cn_k12/directed/models/simple_gin --model-type simple_gin --log-interval 1
 
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/combined3/models/hetero_gat --model-type hetero_gat --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined2/directed/final_regraded_with_rev.pt --output-dir ./outputs/combined2/directed/models/hetero_gat --model-type hetero_gat --log-interval 1
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/combined3NEW/models/hetero_gin --model-type hetero_gin --log-interval 1
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/directed/final_regraded.pt --output-dir ./outputs/combined3NEW/directed/models/hetero_gin --model-type hetero_gin --log-interval 1
+
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/combined3NEW/models/hetero_gat --model-type hetero_gat --log-interval 1
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined2/directed/final_regraded.pt --output-dir ./outputs/combined3NEW/directed/models/hetero_gat --model-type hetero_gat --log-interval 1
 
 # Training with new graph format (uses GraphNodeEncoder for [node_id, out_degree, in_degree] features)
 poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/new_graphs_combined/undirected/final_regraded_with_rev.pt --output-dir ./outputs/new_graph/models/simple_gin --model-type simple_gin --encoder-type graph --log-interval 1
@@ -56,6 +68,11 @@ poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/
 poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/new_graphs_combined/directed/final_regraded.pt --output-dir ./outputs/new_graph/directed/models/simple_gin --model-type simple_gin --encoder-type graph --log-interval 1  --no-node-encoder
 poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/new_graphs_combined/directed/final_regraded.pt --output-dir ./outputs/new_graph/directed/models/hetero_gat --model-type hetero_gat --encoder-type graph --log-interval 1  --no-node-encoder
 poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/new_graphs_combined/directed/final_regraded.pt --output-dir ./outputs/new_graph/directed/models/hetero_gin --model-type hetero_gin --encoder-type graph --log-interval 1  --no-node-encoder
+
+# Training with RobustNodeEncoder (MLP for structure + LayerNorm)
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/robust/models/simple_gin --model-type simple_gin --encoder-type robust --log-interval 1
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/robust/models/hetero_gat --model-type hetero_gat --encoder-type robust --log-interval 1
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/robust/models/hetero_gin --model-type hetero_gin --encoder-type robust --log-interval 1
 
 poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined/undirected/encoder/final_regraded_with_rev.pt --output-dir ./outputs/models/hetero_gat/encoder --model-type hetero_gat --log-interval 1
 poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined/undirected/encoder/final_regraded_with_rev.pt --output-dir ./outputs/models/simple_gin/encoder --model-type simple_gin --log-interval 1

@@ -1,5 +1,7 @@
 """Graph Neural Network models for heterogeneous graph classification"""
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,20 +17,23 @@ from torch_geometric.nn import (
 from torch_geometric.data import HeteroData
 
 
+
+
 class NodeEncoder(nn.Module):
     """
-    Encodes node features (level, category, thought_index) into continuous embeddings.
-    Uses learned embeddings for category and level, but sinusoidal PE for thought index.
+    Encodes node features (level, in_degree, out_degree, thought_index) into continuous embeddings.
+    Uses learned embeddings for level and degrees, sinusoidal PE for thought index.
     
-    For use with 'tree' format: [level, cate, thought_idx]
+    For use with 'tree' format: [level, in_degree, out_degree, thought_idx]
     """
-    def __init__(self, hidden_channels: int, max_level: int = 1000, max_thoughts: int = 5000):
+    def __init__(self, hidden_channels: int, max_level: int = 1000, max_degree: int = 200, max_thoughts: int = 5000):
         super().__init__()
         self.hidden_channels = hidden_channels
         
-        # Learned embeddings for categorical features
-        self.cate_emb = nn.Embedding(5, hidden_channels)
+        # Learned embeddings for categorical/discrete features
         self.level_emb = nn.Embedding(max_level, hidden_channels)
+        self.in_degree_emb = nn.Embedding(max_degree, hidden_channels)
+        self.out_degree_emb = nn.Embedding(max_degree, hidden_channels)
         
         # Fixed Sinusoidal Positional Encoding for thought_index
         # Pre-compute PE matrix
@@ -43,58 +48,132 @@ class NodeEncoder(nn.Module):
         self.register_buffer('pe', pe)
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x is [N, 3] containing (level, cate, thought_index)
+        # x is [N, 4] containing (level, in_degree, out_degree, thought_index)
         x = x.long()
         
         # Clamp values
         level = x[:, 0].clamp(0, self.level_emb.num_embeddings - 1)
-        cate = x[:, 1].clamp(0, self.cate_emb.num_embeddings - 1)
-        thought = x[:, 2].clamp(0, self.pe.size(0) - 1)
+        in_deg = x[:, 1].clamp(0, self.in_degree_emb.num_embeddings - 1)
+        out_deg = x[:, 2].clamp(0, self.out_degree_emb.num_embeddings - 1)
+        thought = x[:, 3].clamp(0, self.pe.size(0) - 1)
         
         # Sum embeddings
-        # Note: cate_emb and level_emb are learned, pe is fixed
-        return self.cate_emb(cate) + self.level_emb(level) + self.pe[thought]
+        return self.level_emb(level) + self.in_degree_emb(in_deg) + self.out_degree_emb(out_deg) + self.pe[thought]
 
 
 class GraphNodeEncoder(nn.Module):
     """
-    Encodes node features (node_id, out_degree, in_degree) into continuous embeddings.
-    Uses sinusoidal PE for node_id and learned embeddings for degrees.
+    Robust encoder for graph format features (node_id, out_degree, in_degree).
+    
+    Uses:
+    1. MLP for degree features with log-normalization to handle outliers
+    2. Sinusoidal PE for node_id with learnable scale
+    3. LayerNorm to stabilize combined features
     
     For use with 'graph' format: [node_id, out_degree, in_degree]
     """
-    def __init__(self, hidden_channels: int, max_nodes: int = 5000, max_degree: int = 200):
+    def __init__(self, hidden_channels: int, max_nodes: int = 5000):
         super().__init__()
         self.hidden_channels = hidden_channels
         
-        # Learned embeddings for degree features
-        self.out_degree_emb = nn.Embedding(max_degree, hidden_channels)
-        self.in_degree_emb = nn.Embedding(max_degree, hidden_channels)
+        # 1. Structural Features: Project degrees through MLP
+        # [out_degree, in_degree] (2 values) -> hidden_channels
+        self.degree_encoder = nn.Sequential(
+            nn.Linear(2, hidden_channels),
+            nn.ReLU(),
+            nn.Linear(hidden_channels, hidden_channels)
+        )
         
-        # Fixed Sinusoidal Positional Encoding for node_id
-        # Pre-compute PE matrix
+        # 2. Positional Encoding with learnable scale for node_id
+        self.pe_scale = nn.Parameter(torch.tensor(1.0))
+        
+        # Build sinusoidal PE
         pe = torch.zeros(max_nodes, hidden_channels)
         position = torch.arange(0, max_nodes, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, hidden_channels, 2).float() * (-torch.log(torch.tensor(10000.0)) / hidden_channels))
-        
+        div_term = torch.exp(torch.arange(0, hidden_channels, 2).float() * (-math.log(10000.0) / hidden_channels))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        
-        # Register as buffer (not a learnable parameter)
         self.register_buffer('pe', pe)
         
+        # 3. LayerNorm for combining features
+        self.norm = nn.LayerNorm(hidden_channels)
+        
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x is [N, 3] containing (node_id, out_degree, in_degree)
-        x = x.long()
+        """
+        x: [N, 3] -> (node_id, out_degree, in_degree)
+        """
+        # 1. Degrees: Log-normalize to squash outliers
+        out_deg = torch.log1p(x[:, 1].float()).unsqueeze(1)
+        in_deg = torch.log1p(x[:, 2].float()).unsqueeze(1)
         
-        # Clamp values
-        node_id = x[:, 0].clamp(0, self.pe.size(0) - 1)
-        out_deg = x[:, 1].clamp(0, self.out_degree_emb.num_embeddings - 1)
-        in_deg = x[:, 2].clamp(0, self.in_degree_emb.num_embeddings - 1)
+        degree_emb = self.degree_encoder(torch.cat([out_deg, in_deg], dim=1))
         
-        # Sum embeddings
-        # Note: degree embeddings are learned, node_id PE is fixed
-        return self.pe[node_id] + self.out_degree_emb(out_deg) + self.in_degree_emb(in_deg)
+        # 2. Node position with learnable scale
+        node_id = x[:, 0].long().clamp(0, self.pe.size(0) - 1)
+        pos_emb = self.pe[node_id] * self.pe_scale
+        
+        # 3. Combine and normalize
+        out = degree_emb + pos_emb
+        
+        return self.norm(out)
+
+
+class RobustNodeEncoder(nn.Module):
+    """
+    A more robust node encoder that:
+    1. Projects continuous structural features (level, degrees) through MLP instead of embeddings
+    2. Uses log-normalization for degrees/levels to handle outliers
+    3. Has learnable PE scaling
+    4. Uses LayerNorm to stabilize the sum of different feature types
+    
+    For use with 'tree' format: [level, in_degree, out_degree, thought_idx]
+    """
+    
+    def __init__(self, hidden_channels: int, max_thoughts: int = 5000):
+        super().__init__()
+        self.hidden_channels = hidden_channels
+        
+        # 1. Structural Features: Project continuous values instead of embedding indices
+        # We project [level, in_degree, out_degree] (3 values) -> hidden_channels
+        self.structure_encoder = nn.Sequential(
+            nn.Linear(3, hidden_channels),
+            nn.ReLU(),
+            nn.Linear(hidden_channels, hidden_channels)
+        )
+        
+        # 2. Positional Encoding with learnable scale
+        self.pe_scale = nn.Parameter(torch.tensor(1.0))
+        
+        # Build sinusoidal PE
+        pe = torch.zeros(max_thoughts, hidden_channels)
+        position = torch.arange(0, max_thoughts, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, hidden_channels, 2).float() * (-math.log(10000.0) / hidden_channels))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+        
+        # 3. LayerNorm is CRITICAL for summing distinct feature types
+        self.norm = nn.LayerNorm(hidden_channels)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: [N, 4] -> (level, in_degree, out_degree, thought_index)
+        """
+        # 1. Structure: Log-normalize inputs to squash outliers
+        level = torch.log1p(x[:, 0].float()).unsqueeze(1)
+        in_deg = torch.log1p(x[:, 1].float()).unsqueeze(1)
+        out_deg = torch.log1p(x[:, 2].float()).unsqueeze(1)
+        
+        struct_emb = self.structure_encoder(torch.cat([level, in_deg, out_deg], dim=1))
+        
+        # 2. Position with learnable scale
+        thought_idx = x[:, 3].long().clamp(0, self.pe.size(0) - 1)
+        pos_emb = self.pe[thought_idx] * self.pe_scale
+        
+        # 3. Combine and normalize
+        out = struct_emb + pos_emb
+        
+        return self.norm(out)
 
 
 class HeteroGINConv(nn.Module):
@@ -221,9 +300,13 @@ class HeteroGraphClassifier(nn.Module):
         self.encoder_type = encoder_type
         
         # Input projection or encoding
-        if use_node_encoder and in_channels == 3:
+        # Tree format has 4 features [level, in_deg, out_deg, thought_idx]
+        # Graph format has 3 features [node_id, out_deg, in_deg]
+        if use_node_encoder and in_channels in (3, 4):
             if encoder_type == "graph":
                 self.node_encoder = GraphNodeEncoder(hidden_channels)
+            elif encoder_type == "robust":
+                self.node_encoder = RobustNodeEncoder(hidden_channels)
             else:
                 self.node_encoder = NodeEncoder(hidden_channels)
             self.input_lin = None
@@ -366,9 +449,13 @@ class SimpleHeteroGNN(nn.Module):
         self.encoder_type = encoder_type
         
         # Encoder
-        if use_node_encoder and in_channels == 3:
+        # Tree format has 4 features [level, in_deg, out_deg, thought_idx]
+        # Graph format has 3 features [node_id, out_deg, in_deg]
+        if use_node_encoder and in_channels in (3, 4):
             if encoder_type == "graph":
                 self.node_encoder = GraphNodeEncoder(hidden_channels)
+            elif encoder_type == "robust":
+                self.node_encoder = RobustNodeEncoder(hidden_channels)
             else:
                 self.node_encoder = NodeEncoder(hidden_channels)
             mlp_in_channels = hidden_channels
