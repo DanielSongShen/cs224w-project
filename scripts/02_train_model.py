@@ -99,7 +99,7 @@ def main():
     parser.add_argument(
         "--hidden-channels",
         type=int,
-        default=64,
+        default=16,
         help="Hidden layer dimension",
     )
     parser.add_argument(
@@ -113,6 +113,18 @@ def main():
         type=float,
         default=0.1,
         help="Dropout rate",
+    )
+    parser.add_argument(
+        "--no-node-encoder",
+        action="store_true",
+        help="Disable learned node encoder (use raw features with linear projection)",
+    )
+    parser.add_argument(
+        "--pool",
+        type=str,
+        default="add",
+        choices=["mean", "add"],
+        help="Global pooling strategy for hetero models (default: add)",
     )
     
     # Training arguments
@@ -137,7 +149,7 @@ def main():
     parser.add_argument(
         "--weight-decay",
         type=float,
-        default=0.0,
+        default=1e-3,
         help="Weight decay (L2 regularization)",
     )
     parser.add_argument(
@@ -278,6 +290,8 @@ def main():
                 edge_types=edge_types,
                 num_layers=args.num_layers,
                 dropout=args.dropout,
+                pool=args.pool,
+                use_node_encoder=not args.no_node_encoder,
             )
         
         cv_results = train_with_cross_validation(
@@ -287,6 +301,7 @@ def main():
             batch_size=args.batch_size,
             config=config,
             seed=args.seed,
+            class_counts=(summary['num_negative'], summary['num_positive']),
         )
         
         # Save cross-validation results
@@ -338,13 +353,17 @@ def main():
             edge_types=edge_types,
             num_layers=args.num_layers,
             dropout=args.dropout,
+            pool=args.pool,
+            use_node_encoder=not args.no_node_encoder,
         )
         
         num_params = sum(p.numel() for p in model.parameters())
         print(f"  Parameters: {num_params:,}")
         
         # Create trainer and train
-        trainer = GraphClassificationTrainer(model, config=config)
+        # Pass class counts for balanced loss weighting
+        class_counts = (summary['num_negative'], summary['num_positive'])
+        trainer = GraphClassificationTrainer(model, config=config, class_counts=class_counts)
         
         print(f"\nTraining...")
         print("-" * 60)
@@ -381,6 +400,7 @@ def main():
             "training": {
                 "best_epoch": metrics.best_epoch,
                 "best_val_acc": float(metrics.best_val_acc),
+                "best_val_f1": float(metrics.best_val_f1),
             },
             "test_results": {
                 "accuracy": float(test_results["test_acc"]),
@@ -399,7 +419,7 @@ def main():
         print(f"\n{'='*60}")
         print("Training Complete!")
         print(f"{'='*60}")
-        print(f"  Best Val Accuracy: {metrics.best_val_acc:.4f} (epoch {metrics.best_epoch})")
+        print(f"  Best Val F1: {metrics.best_val_f1:.4f} (Acc: {metrics.best_val_acc:.4f}, epoch {metrics.best_epoch})")
         print(f"  Test Accuracy: {test_results['test_acc']:.4f}")
         print(f"  Test F1: {test_results['f1']:.4f}")
 

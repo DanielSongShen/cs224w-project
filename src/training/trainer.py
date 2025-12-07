@@ -58,7 +58,9 @@ class TrainingMetrics:
     train_accs: List[float] = field(default_factory=list)
     val_losses: List[float] = field(default_factory=list)
     val_accs: List[float] = field(default_factory=list)
+    val_f1s: List[float] = field(default_factory=list)
     best_val_acc: float = 0.0
+    best_val_f1: float = 0.0
     best_epoch: int = 0
     
     # Per-class metrics
@@ -71,7 +73,9 @@ class TrainingMetrics:
             "train_accs": self.train_accs,
             "val_losses": self.val_losses,
             "val_accs": self.val_accs,
+            "val_f1s": self.val_f1s,
             "best_val_acc": self.best_val_acc,
+            "best_val_f1": self.best_val_f1,
             "best_epoch": self.best_epoch,
             "val_class_accs": self.val_class_accs,
         }
@@ -157,6 +161,7 @@ class GraphClassificationTrainer:
         optimizer: Optional[Optimizer] = None,
         scheduler: Optional[_LRScheduler] = None,
         criterion: Optional[nn.Module] = None,
+        class_counts: Optional[Tuple[int, int]] = None,
     ):
         """
         Initialize the trainer.
@@ -167,6 +172,7 @@ class GraphClassificationTrainer:
             optimizer: Custom optimizer (creates Adam if None)
             scheduler: Learning rate scheduler (optional)
             criterion: Loss function (uses CrossEntropyLoss if None)
+            class_counts: Tuple of (num_class_0, num_class_1) for balanced weighting
         """
         self.config = config or TrainingConfig()
         self.device = self.config.get_device()
@@ -185,7 +191,19 @@ class GraphClassificationTrainer:
         self.scheduler = scheduler
         
         # Initialize criterion
-        self.criterion = criterion or nn.CrossEntropyLoss()
+        if criterion is None:
+            if class_counts is not None:
+                # Balanced weights: w_i = total_samples / (2 * count_i)
+                count_0, count_1 = class_counts
+                total = count_0 + count_1
+                w_0 = total / (2 * count_0)
+                w_1 = total / (2 * count_1)
+                weight = torch.tensor([w_0, w_1]).to(self.device)
+                self.criterion = nn.CrossEntropyLoss(weight=weight)
+            else:
+                self.criterion = nn.CrossEntropyLoss()
+        else:
+            self.criterion = criterion
         
         # State tracking
         self.best_model_state: Optional[Dict] = None
@@ -245,7 +263,7 @@ class GraphClassificationTrainer:
         return avg_loss, accuracy
     
     @torch.no_grad()
-    def _validate(self, val_loader: DataLoader) -> Tuple[float, float, Dict[int, float]]:
+    def _validate(self, val_loader: DataLoader) -> Tuple[float, float, float, Dict[int, float]]:
         """
         Run validation.
         
@@ -253,7 +271,7 @@ class GraphClassificationTrainer:
             val_loader: DataLoader for validation data
             
         Returns:
-            Tuple of (average loss, accuracy, per-class accuracy dict)
+            Tuple of (average loss, accuracy, f1_score, per-class accuracy dict)
         """
         self.model.eval()
         total_loss = 0.0
@@ -263,6 +281,10 @@ class GraphClassificationTrainer:
         # Per-class tracking
         class_correct: Dict[int, int] = {}
         class_total: Dict[int, int] = {}
+        
+        # For F1 calculation
+        all_preds = []
+        all_labels = []
         
         for batch in val_loader:
             batch = batch.to(self.device)
@@ -284,6 +306,10 @@ class GraphClassificationTrainer:
             correct += (pred == labels).sum().item()
             total += labels.size(0)
             
+            # Collect predictions for F1
+            all_preds.extend(pred.cpu().tolist())
+            all_labels.extend(labels.cpu().tolist())
+            
             # Per-class metrics
             for i in range(labels.size(0)):
                 label = labels[i].item()
@@ -297,6 +323,14 @@ class GraphClassificationTrainer:
         avg_loss = total_loss / total if total > 0 else 0.0
         accuracy = correct / total if total > 0 else 0.0
         
+        # Compute F1 score
+        tp = sum(1 for p, l in zip(all_preds, all_labels) if p == 1 and l == 1)
+        fp = sum(1 for p, l in zip(all_preds, all_labels) if p == 1 and l == 0)
+        fn = sum(1 for p, l in zip(all_preds, all_labels) if p == 0 and l == 1)
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        
         # Compute per-class accuracy
         class_acc = {
             label: class_correct[label] / class_total[label]
@@ -304,7 +338,7 @@ class GraphClassificationTrainer:
             if class_total[label] > 0
         }
         
-        return avg_loss, accuracy, class_acc
+        return avg_loss, accuracy, f1, class_acc
     
     def fit(
         self,
@@ -338,17 +372,19 @@ class GraphClassificationTrainer:
             self.metrics.train_accs.append(train_acc)
             
             # Validation
-            val_loss, val_acc, class_acc = self._validate(val_loader)
+            val_loss, val_acc, val_f1, class_acc = self._validate(val_loader)
             self.metrics.val_losses.append(val_loss)
             self.metrics.val_accs.append(val_acc)
+            self.metrics.val_f1s.append(val_f1)
             self.metrics.val_class_accs.append(class_acc)
             
             # Update learning rate scheduler
             if self.scheduler is not None:
                 self.scheduler.step()
             
-            # Track best model
-            if val_acc > self.metrics.best_val_acc:
+            # Track best model (by F1 score)
+            if val_f1 > self.metrics.best_val_f1:
+                self.metrics.best_val_f1 = val_f1
                 self.metrics.best_val_acc = val_acc
                 self.metrics.best_epoch = epoch
                 if self.config.save_best:
@@ -362,12 +398,12 @@ class GraphClassificationTrainer:
                 print(
                     f"Epoch {epoch:03d} | "
                     f"Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | "
-                    f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
+                    f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | Val F1: {val_f1:.4f} | "
                     f"{class_acc_str}"
                 )
             
-            # Early stopping check
-            if self.early_stopping(val_acc):
+            # Early stopping check (by F1)
+            if self.early_stopping(val_f1):
                 if self.config.verbose:
                     print(f"Early stopping at epoch {epoch}")
                 break
@@ -384,7 +420,7 @@ class GraphClassificationTrainer:
         
         if self.config.verbose:
             print("-" * 60)
-            print(f"Training complete. Best Val Acc: {self.metrics.best_val_acc:.4f} at epoch {self.metrics.best_epoch}")
+            print(f"Training complete. Best Val F1: {self.metrics.best_val_f1:.4f} (Acc: {self.metrics.best_val_acc:.4f}) at epoch {self.metrics.best_epoch}")
         
         return self.metrics
     
@@ -399,7 +435,7 @@ class GraphClassificationTrainer:
         Returns:
             Dictionary with test metrics
         """
-        test_loss, test_acc, class_acc = self._validate(test_loader)
+        test_loss, test_acc, test_f1, class_acc = self._validate(test_loader)
         
         # Collect all predictions and labels for additional metrics
         self.model.eval()
@@ -518,6 +554,7 @@ def train_with_cross_validation(
     batch_size: int = 32,
     config: Optional[TrainingConfig] = None,
     seed: int = 42,
+    class_counts: Optional[Tuple[int, int]] = None,
 ) -> Dict[str, Any]:
     """
     Train model with k-fold cross-validation.
@@ -529,6 +566,7 @@ def train_with_cross_validation(
         batch_size: Batch size for data loaders
         config: Training configuration
         seed: Random seed for reproducibility
+        class_counts: Tuple of (num_class_0, num_class_1) for balanced weighting
         
     Returns:
         Dictionary with cross-validation results
@@ -562,7 +600,7 @@ def train_with_cross_validation(
         model = model_factory()
         
         # Train
-        trainer = GraphClassificationTrainer(model, config=config)
+        trainer = GraphClassificationTrainer(model, config=config, class_counts=class_counts)
         metrics = trainer.fit(train_loader, val_loader)
         
         # Evaluate on validation fold

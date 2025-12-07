@@ -303,7 +303,7 @@ def convert_json_to_hetero_graph(
         thought_idx = node["thought_list"][0] if node["thought_list"] else -1
         node_features.append([level, cate, thought_idx])
     
-    hetero_data["thought"].x = torch.tensor(node_features, dtype=torch.float)
+    hetero_data["thought"].x = torch.tensor(node_features, dtype=torch.long)
     hetero_data["thought"].num_nodes = num_nodes
     
     # Add edges for each type
@@ -412,11 +412,28 @@ class ReasoningTraceDataset(InMemoryDataset):
         self.include_reverse_edges = include_reverse_edges
         
         # Store the raw filename for processed file naming
-        self._raw_filename = osp.basename(raw_filepath).replace('.json', '').replace('.jsonl', '')
+        # Handle both .json and .jsonl extensions properly
+        basename = osp.basename(raw_filepath)
+        if basename.endswith('.jsonl'):
+            self._raw_filename = basename[:-6]
+        elif basename.endswith('.json'):
+            self._raw_filename = basename[:-5]
+        else:
+            self._raw_filename = osp.splitext(basename)[0]
         
         super().__init__(root, transform, pre_transform, pre_filter, force_reload=force_reload)
         self.load(self.processed_paths[0])
     
+    @property
+    def raw_dir(self) -> str:
+        """Override raw directory to be same as raw_filepath directory."""
+        return osp.dirname(self.raw_filepath)
+
+    @property
+    def processed_dir(self) -> str:
+        """Override processed directory to be same as root to avoid creating 'processed' subdirectory."""
+        return self.root
+
     @property
     def raw_file_names(self) -> List[str]:
         """Return raw file names (not used since we specify raw_filepath directly)."""

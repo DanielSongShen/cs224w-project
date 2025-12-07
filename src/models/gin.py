@@ -10,8 +10,48 @@ from torch_geometric.nn import (
     Linear,
     global_mean_pool,
     global_add_pool,
+    GlobalAttention,
 )
 from torch_geometric.data import HeteroData
+
+
+class NodeEncoder(nn.Module):
+    """
+    Encodes node features (level, category, thought_index) into continuous embeddings.
+    Uses learned embeddings for category and level, but sinusoidal PE for thought index.
+    """
+    def __init__(self, hidden_channels: int, max_level: int = 1000, max_thoughts: int = 5000):
+        super().__init__()
+        self.hidden_channels = hidden_channels
+        
+        # Learned embeddings for categorical features
+        self.cate_emb = nn.Embedding(5, hidden_channels)
+        self.level_emb = nn.Embedding(max_level, hidden_channels)
+        
+        # Fixed Sinusoidal Positional Encoding for thought_index
+        # Pre-compute PE matrix
+        pe = torch.zeros(max_thoughts, hidden_channels)
+        position = torch.arange(0, max_thoughts, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, hidden_channels, 2).float() * (-torch.log(torch.tensor(10000.0)) / hidden_channels))
+        
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        
+        # Register as buffer (not a learnable parameter)
+        self.register_buffer('pe', pe)
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x is [N, 3] containing (level, cate, thought_index)
+        x = x.long()
+        
+        # Clamp values
+        level = x[:, 0].clamp(0, self.level_emb.num_embeddings - 1)
+        cate = x[:, 1].clamp(0, self.cate_emb.num_embeddings - 1)
+        thought = x[:, 2].clamp(0, self.pe.size(0) - 1)
+        
+        # Sum embeddings
+        # Note: cate_emb and level_emb are learned, pe is fixed
+        return self.cate_emb(cate) + self.level_emb(level) + self.pe[thought]
 
 
 class HeteroGINConv(nn.Module):
@@ -125,15 +165,22 @@ class HeteroGraphClassifier(nn.Module):
         conv_type: str = "gin",
         dropout: float = 0.0,
         pool: str = "mean",
+        use_node_encoder: bool = True,
     ):
         super().__init__()
         
         self.num_layers = num_layers
         self.dropout = dropout
         self.pool = pool
+        self.use_node_encoder = use_node_encoder
         
-        # Input projection
-        self.input_lin = Linear(in_channels, hidden_channels)
+        # Input projection or encoding
+        if use_node_encoder and in_channels == 3:
+            self.node_encoder = NodeEncoder(hidden_channels)
+            self.input_lin = None
+        else:
+            self.node_encoder = None
+            self.input_lin = Linear(in_channels, hidden_channels)
         
         # Message passing layers
         self.convs = nn.ModuleList()
@@ -186,7 +233,10 @@ class HeteroGraphClassifier(nn.Module):
         }
         
         # Input projection
-        x_dict = {key: self.input_lin(x) for key, x in x_dict.items()}
+        if self.node_encoder is not None:
+            x_dict = {key: self.node_encoder(x) for key, x in x_dict.items()}
+        else:
+            x_dict = {key: self.input_lin(x) for key, x in x_dict.items()}
         
         # Message passing
         for i, (conv, norm) in enumerate(zip(self.convs, self.norms)):
@@ -255,11 +305,21 @@ class SimpleHeteroGNN(nn.Module):
         out_channels: int,
         num_layers: int = 3,
         dropout: float = 0.0,
+        use_node_encoder: bool = True,
     ):
         super().__init__()
         
         self.num_layers = num_layers
         self.dropout = dropout
+        self.use_node_encoder = use_node_encoder
+        
+        # Encoder
+        if use_node_encoder and in_channels == 3:
+            self.node_encoder = NodeEncoder(hidden_channels)
+            mlp_in_channels = hidden_channels
+        else:
+            self.node_encoder = None
+            mlp_in_channels = in_channels
         
         # Build GIN layers
         self.convs = nn.ModuleList()
@@ -267,7 +327,7 @@ class SimpleHeteroGNN(nn.Module):
         
         # First layer
         mlp = nn.Sequential(
-            nn.Linear(in_channels, hidden_channels),
+            nn.Linear(mlp_in_channels, hidden_channels),
             nn.BatchNorm1d(hidden_channels),
             nn.ReLU(),
             nn.Linear(hidden_channels, hidden_channels),
@@ -285,6 +345,15 @@ class SimpleHeteroGNN(nn.Module):
             )
             self.convs.append(GINConv(mlp))
             self.norms.append(nn.BatchNorm1d(hidden_channels))
+        
+        # Attention pooling: learns which nodes are important
+        # gate_nn produces attention scores, allowing model to focus on "mistake" nodes
+        gate_nn = nn.Sequential(
+            nn.Linear(hidden_channels, hidden_channels),
+            nn.ReLU(),
+            nn.Linear(hidden_channels, 1),
+        )
+        self.pool = GlobalAttention(gate_nn)
         
         # Classification head
         self.classifier = nn.Sequential(
@@ -307,6 +376,10 @@ class SimpleHeteroGNN(nn.Module):
         """
         # Get node features (assuming single node type "thought")
         x = data["thought"].x
+        
+        # Apply encoder if enabled
+        if self.node_encoder is not None:
+            x = self.node_encoder(x)
         
         # Combine all edge types into single edge_index
         # Only use forward edges (not reverse) to avoid duplicates
@@ -337,8 +410,8 @@ class SimpleHeteroGNN(nn.Module):
             if i < self.num_layers - 1 and self.dropout > 0:
                 x = F.dropout(x, p=self.dropout, training=self.training)
         
-        # Global pooling
-        x = global_mean_pool(x, batch)
+        # Attention pooling - learns to focus on important nodes
+        x = self.pool(x, batch)
         
         # Classification
         out = self.classifier(x)
@@ -364,10 +437,26 @@ def create_model(
         out_channels: Number of output classes
         edge_types: List of edge types (required for hetero models)
         **kwargs: Additional arguments passed to model constructor
+            - num_layers: Number of message passing layers
+            - dropout: Dropout rate
+            - pool: Pooling method (hetero models only)
+            - use_node_encoder: Whether to use learned node encoder
         
     Returns:
         Initialized model
     """
+    # Common kwargs accepted by all models
+    common_kwargs = {
+        k: v for k, v in kwargs.items() 
+        if k in ("num_layers", "dropout", "use_node_encoder")
+    }
+    
+    # Kwargs only for HeteroGraphClassifier
+    hetero_kwargs = {
+        k: v for k, v in kwargs.items()
+        if k in ("num_layers", "dropout", "pool", "use_node_encoder")
+    }
+    
     if model_type == "hetero_gin":
         if edge_types is None:
             raise ValueError("edge_types required for hetero_gin model")
@@ -377,7 +466,7 @@ def create_model(
             out_channels=out_channels,
             edge_types=edge_types,
             conv_type="gin",
-            **kwargs,
+            **hetero_kwargs,
         )
     elif model_type == "hetero_gat":
         if edge_types is None:
@@ -388,14 +477,14 @@ def create_model(
             out_channels=out_channels,
             edge_types=edge_types,
             conv_type="gat",
-            **kwargs,
+            **hetero_kwargs,
         )
     elif model_type == "simple_gin":
         return SimpleHeteroGNN(
             in_channels=in_channels,
             hidden_channels=hidden_channels,
             out_channels=out_channels,
-            **kwargs,
+            **common_kwargs,
         )
     else:
         raise ValueError(f"Unknown model_type: {model_type}")
