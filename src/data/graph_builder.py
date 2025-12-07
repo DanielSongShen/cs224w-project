@@ -674,10 +674,11 @@ class ReasoningGraphPipeline:
                         })
                     
                     if candidates:
+                        # OPTIMIZED FOR PREFIX CACHING
                         user_content = json.dumps({
+                            "candidate_parents": candidates,  # <--- MOVE TO TOP
                             "step_n": step_n,
-                            "current_thought": text_n,
-                            "candidate_parents": candidates
+                            "current_thought": text_n         # <--- MOVE TO BOTTOM
                         }, ensure_ascii=False)
                         
                         queries_to_process.append((thought_n, candidates, user_content, step_n, anchor_prev_step))
@@ -1089,31 +1090,3 @@ def run_reasoning_pipeline(
     )
     
     return pipeline.run_full_pipeline(reasoning_traces)
-
-
-# Example usage
-if __name__ == "__main__":
-    # Mock LLM client for demonstration
-    class MockLLMClient:
-        def generate(self, messages):
-            # Return (response, input_tokens, output_tokens)
-            return "Mock response", 100, 50
-    
-    # Sample input data
-    sample_data = [
-        {
-            "tag": "example_001",
-            "prediction": "<think>First, I need to understand the problem. Wait, let me reconsider. Actually, the correct approach is...</think>"
-        }
-    ]
-    
-    # Run pipeline
-    results = run_reasoning_pipeline(
-        reasoning_traces=sample_data,
-        output_dir="./output",
-        llm_client=MockLLMClient(),
-        max_workers=10
-    )
-    
-    print(f"\nProcessed {len(results)} items")
-    print(f"Output format: reasoning_graph with nodes and edges")
