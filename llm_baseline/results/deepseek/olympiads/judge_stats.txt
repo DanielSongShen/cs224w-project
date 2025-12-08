@@ -1,0 +1,14 @@
+
+===== FINAL RESULTS =====
+Dataset:   data/olympiads/final_regraded.json
+Evaluated: 499/499
+Accuracy:  0.6513
+Precision: 0.6160
+Recall:    0.9251
+F1 Score:  0.7395
+AUC:       0.6307
+Confusion Matrix:
+  TP: 247
+  TN: 78
+  FP: 154
+  FN: 20

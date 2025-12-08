@@ -1,0 +1,14 @@
+
+===== FINAL RESULTS =====
+Dataset:   data/combined/final_regraded.json
+Evaluated: 1410/1494
+Accuracy:  0.6915
+Precision: 0.6828
+Recall:    0.9609
+F1 Score:  0.7983
+AUC:       0.5914
+Confusion Matrix:
+  TP: 861
+  TN: 114
+  FP: 400
+  FN: 35

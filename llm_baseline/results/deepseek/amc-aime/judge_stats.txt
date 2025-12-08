@@ -1,0 +1,14 @@
+
+===== FINAL RESULTS =====
+Dataset:   data/amc-aime/final_regraded.json
+Evaluated: 494/495
+Accuracy:  0.5951
+Precision: 0.5868
+Recall:    0.9312
+F1 Score:  0.7199
+AUC:       0.5504
+Confusion Matrix:
+  TP: 257
+  TN: 37
+  FP: 181
+  FN: 19

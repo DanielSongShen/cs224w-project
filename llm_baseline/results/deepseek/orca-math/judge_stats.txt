@@ -1,0 +1,14 @@
+
+===== FINAL RESULTS =====
+Dataset:   data/orca-math/final_regraded.json
+Evaluated: 500/500
+Accuracy:  0.7820
+Precision: 0.7859
+Recall:    0.9761
+F1 Score:  0.8707
+AUC:       0.5848
+Confusion Matrix:
+  TP: 367
+  TN: 24
+  FP: 100
+  FN: 9
