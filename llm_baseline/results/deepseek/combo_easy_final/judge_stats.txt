@@ -1,0 +1,14 @@
+
+===== FINAL RESULTS =====
+Dataset:   data/combo_easy_final.json
+Evaluated: 2480/2480
+Accuracy:  0.6815
+Precision: 0.6414
+Recall:    0.9658
+F1 Score:  0.7709
+AUC:       0.6464
+Confusion Matrix:
+  TP: 1329
+  TN: 361
+  FP: 743
+  FN: 47

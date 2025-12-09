@@ -1,0 +1,14 @@
+
+===== FINAL RESULTS =====
+Dataset:   data/combo_hard_final.json
+Evaluated: 1994/1994
+Accuracy:  0.5988
+Precision: 0.5695
+Recall:    0.9579
+F1 Score:  0.7143
+AUC:       0.5810
+Confusion Matrix:
+  TP: 1000
+  TN: 194
+  FP: 756
+  FN: 44

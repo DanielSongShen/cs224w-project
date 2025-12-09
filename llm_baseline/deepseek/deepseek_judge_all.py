@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 # ===========================
 
 def load_config():
-    config_path = pathlib.Path(__file__).parent / "config.json"
+    config_path = pathlib.Path(__file__).parent.parent / "config.json"
     try:
         with open(config_path, "r") as f:
             return json.load(f)
@@ -132,7 +132,7 @@ def main():
 
     input_path = args.input
 
-    dataset_name = pathlib.Path(input_path).parent.name
+    dataset_name = pathlib.Path(input_path).stem
 
     # Create results/<dataset_name>/ if it doesn't exist
     results_dir = pathlib.Path("results/deepseek") / dataset_name

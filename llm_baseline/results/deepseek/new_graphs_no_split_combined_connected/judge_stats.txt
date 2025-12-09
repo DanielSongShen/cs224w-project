@@ -1,0 +1,14 @@
+
+===== FINAL RESULTS =====
+Dataset:   data/new_graphs_no_split_combined_connected.json
+Evaluated: 1494/1494
+Accuracy:  0.6780
+Precision: 0.6679
+Recall:    0.9489
+F1 Score:  0.7840
+AUC:       0.5964
+Confusion Matrix:
+  TP: 873
+  TN: 140
+  FP: 434
+  FN: 47

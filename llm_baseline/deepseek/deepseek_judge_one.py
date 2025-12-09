@@ -9,7 +9,7 @@ import pathlib
 
 def load_config():
     """Load config.json located in the same directory as this script."""
-    config_path = pathlib.Path(__file__).parent / "config.json"
+    config_path = pathlib.Path(__file__).parent.parent / "config.json"
     try:
         with open(config_path, "r") as f:
             return json.load(f)
