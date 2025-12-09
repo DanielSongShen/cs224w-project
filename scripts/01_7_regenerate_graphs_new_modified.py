@@ -237,11 +237,12 @@ def regenerate_graphs(
     batch_size: int = 10,
     debug: bool = False,
     verbose: bool = False,
-    start_step: int = 1
+    start_step: int = 1,
+    causal: bool = False
 ):
     """
     Regenerate reasoning graphs from final_regraded.json.
-    
+
     Args:
         input_path: Path to final_regraded.json
         output_dir: Output directory for new graphs
@@ -253,7 +254,8 @@ def regenerate_graphs(
         debug: Enable debug logging in pipeline
         verbose: Enable verbose output
         start_step: Step to start from (1-5)
-    
+        causal: If True, only consider parents that occurred chronologically before
+
     Returns:
         List of processed items with reasoning graphs
     """
@@ -388,7 +390,8 @@ def regenerate_graphs(
             batch_size=batch_size,
             debug=debug,
             start_step=start_step,
-            max_samples=max_samples
+            max_samples=max_samples,
+            causal=causal
         )
         
         return results
@@ -479,6 +482,11 @@ Examples:
         choices=[1, 2, 3, 4, 5],
         help="Step to start from (1-5). Use 4 to run new edges on old data (default: 1)"
     )
+    parser.add_argument(
+        "--causal",
+        action="store_true",
+        help="Only consider parents that occurred chronologically before (default: False)"
+    )
     
     args = parser.parse_args()
     
@@ -498,7 +506,8 @@ Examples:
         batch_size=args.batch_size,
         debug=args.debug,
         verbose=args.verbose,
-        start_step=args.start_step
+        start_step=args.start_step,
+        causal=args.causal
     )
     
     if results is None:

@@ -34,6 +34,7 @@ def run_reasoning_pipeline(
     debug: bool = False,
     start_step: int = 1,
     max_samples: Optional[int] = None,
+    causal: bool = False,
     **kwargs
 ) -> List[Dict[str, Any]]:
     """
@@ -52,8 +53,9 @@ def run_reasoning_pipeline(
         debug: Enable detailed debug logging (default: False)
         start_step: Step to start from (1-5). Use this to restart from a specific step.
         max_samples: Maximum number of samples to process (applies to restarts too)
+        causal: If True, only consider parents that occurred chronologically before (default: False)
         **kwargs: Additional arguments for LLM client creation
-    
+
     Returns:
         List of processed items with reasoning graphs
     
@@ -102,7 +104,8 @@ def run_reasoning_pipeline(
         max_workers=max_workers,
         use_async=use_async,
         batch_size=batch_size,
-        debug=debug
+        debug=debug,
+        causal=causal
     )
     
     return pipeline.run_full_pipeline(

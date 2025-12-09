@@ -1,4 +1,4 @@
-"""Step 4: Assign Parent Relationships (FIXED VERSION)
+"""Step 4: Assign Parent Relationships (REFACTORED VERSION)
 
 The most expensive step. Implements:
 - Prefix Caching Optimization (static data first in JSON)
@@ -9,6 +9,17 @@ The most expensive step. Implements:
 CRITICAL FIX:
 - Ensures Step 1 thoughts are connected to Root (0) when Step 0 is missing
 - Prevents orphaned nodes in the final graph
+
+REFACTORING (Dec 2024):
+- Centralized causal anchor logic in main loop (Block A)
+- Simplified worker function (no longer determines fallback)
+- Pre-calculates best_fallback before worker execution
+- Handles edge cases where causal filtering removes all parents
+
+OPTIMIZATIONS (Dec 2024):
+- Hidden Steps Fix: max_step accounts for both sketch and actual assignments
+- Caching Optimization: Causal filter moved to output (post-hoc) so all thoughts
+  in a step see identical candidate lists, maximizing prefix cache hits
 """
 import json
 import time
@@ -43,13 +54,14 @@ def process_link(
     max_workers: int = 50,
     use_async: bool = False,
     batch_size: int = 10,
-    debug: bool = False
+    debug: bool = False,
+    causal: bool = False
 ) -> List[Dict[str, Any]]:
     """
     Assign parent relationships for each thought.
-    
+
     Follows same pattern as Steps 2-3 but with incremental saving.
-    
+
     Args:
         input_data: Items with 'thoughts_list' and 'assigned_step'
         llm_client: LLM client instance
@@ -58,11 +70,12 @@ def process_link(
         use_async: Whether to use async batch processing
         batch_size: Batch size for async processing
         debug: Enable debug logging
-    
+        causal: If True, only consider parents that occurred chronologically before
+
     Returns:
         Items with added 'thought_relations' field
     """
-    print("\n=== Step 4: Assigning parent relationships (LCoT Structural + Step 1 Fix) ===")
+    print("\n=== Step 4: Assigning parent relationships (Refactored with Causal Anchor Logic) ===")
     start_time = time.time()
     
     # INCREMENTAL SAVING: Check for existing progress
@@ -93,7 +106,7 @@ def process_link(
     
     # Define item processor (follows same pattern as steps 2-3)
     def process_item(item):
-        return _process_single_item(item, llm_client, debug)
+        return _process_single_item(item, llm_client, debug, causal)
     
     # Process in parallel (sync or async) - SAME PATTERN AS STEPS 2-3
     new_results = []
@@ -196,29 +209,40 @@ async def _process_batch_async(
 
 
 def _process_single_item(
-    item: Dict[str, Any], 
-    llm_client, 
-    debug: bool
+    item: Dict[str, Any],
+    llm_client,
+    debug: bool,
+    causal: bool = False
 ) -> Dict[str, Any]:
     """
     Process a single item to assign parent relationships.
-    
+
     This is the complex part with multiple LLM calls per item.
     Uses an inner thread pool (5 workers) for queries.
-    
+
+    REFACTORED LOGIC:
+    - Block A: Pre-calculates best fallback (Causal Anchor) in main loop
+    - Block B: Builds LLM candidate list (CACHING OPTIMIZED - no causal filter at input)
+    - Block C: Prepares payload for worker
+    - Worker: Simplified - tries LLM, applies causal filter post-hoc, uses pre-calculated fallback
+
     Implements:
     - Coverage guarantee (sanitization)
     - Gap bridging (find nearest non-empty previous step)
     - **CRITICAL FIX**: Step 1 → Root connection when Step 0 is missing
+    - **HIDDEN STEPS FIX**: Loop boundary accounts for both sketch and assignments
+    - **CACHING OPTIMIZATION**: Causal filter applied post-hoc for maximum cache hits
     - LCoT structural fallback (connect to anchor)
     - Prefix caching optimization
     - Type normalization (handles old pipeline data)
-    
+    - Causal filtering (optional): Only consider chronologically earlier parents
+
     Args:
         item: Item with thoughts_list and assigned_step
         llm_client: LLM client instance
         debug: Enable debug logging
-    
+        causal: If True, only consider parents that occurred chronologically before
+
     Returns:
         Item with added thought_relations field
     """
@@ -283,7 +307,12 @@ def _process_single_item(
     
     # Get reasoning steps
     reasoning_steps = extract_reasoning_dict(item.get("reasoning_sketch", ""))
-    max_step = max(reasoning_steps.keys()) if reasoning_steps else 0
+    
+    # HIDDEN STEPS FIX: Calculate max step from both Sketch AND Actual Assignments
+    # This prevents orphaned nodes when steps exist in assignments but not in sketch
+    max_sketch_step = max(reasoning_steps.keys()) if reasoning_steps else 0
+    max_assigned_step = max(step_to_thoughts.keys()) if step_to_thoughts else 0
+    max_step = max(max_sketch_step, max_assigned_step)
     
     # Initialize relations structure
     item["thought_relations"] = {}
@@ -318,9 +347,6 @@ def _process_single_item(
         
         thoughts_n = step_to_thoughts[step_n]
         
-        # Calculate anchor of previous step
-        anchor_prev_step = max(thoughts_prev_step) if thoughts_prev_step else None
-        
         # For each thought in step N
         for thought_n in thoughts_n:
             if thought_n == 0:  # Skip T0 (root)
@@ -328,17 +354,51 @@ def _process_single_item(
             if thought_n >= len(thoughts):
                 continue
             
+            # =========================================================
+            # LOGIC BLOCK A: DETERMINE FALLBACK (PRE-CALCULATION)
+            # =========================================================
+            # We determine the best fallback NOW, so the worker doesn't have to guess.
+            # NOTE: We keep the causal filter here for fallback calculation because
+            # this is internal logic, not part of the LLM prompt (no caching impact).
+            
+            # 1. Gather potential ancestors from previous step
+            # If causal=True, we strictly filter for t < thought_n
+            # If causal=False, we accept all (standard LCoT behavior)
+            valid_ancestors = [
+                t for t in thoughts_prev_step 
+                if (not causal or t < thought_n)
+            ]
+
+            # 2. Select the Anchor
+            # If we have ancestors, pick the latest one (Max).
+            # If no ancestors exist (e.g. late thought in early step), fallback to Root (0).
+            best_fallback = max(valid_ancestors) if valid_ancestors else 0
+
+            if debug and causal and best_fallback == 0 and thought_n > 1:
+                print(f"  Causal edge case: Thought {thought_n} has no valid ancestors, using Root (0)")
+
+            # =========================================================
+            # LOGIC BLOCK B: BUILD LLM CANDIDATES (CACHING OPTIMIZED)
+            # =========================================================
             text_n = truncate_text(thoughts[thought_n], MAX_THOUGHT_LENGTH)
             
-            # Build candidate parents
+            # Build candidate parents for LLM
+            # CACHING OPTIMIZATION: We include ALL previous step thoughts here
+            # (no causal filter at input) so the candidate list is identical for
+            # every thought in this step. This enables Prefix Caching.
+            # The causal filter is applied POST-HOC in the worker on LLM output.
             candidates = []
             for thought_prev in thoughts_prev_step:
                 if thought_prev >= len(thoughts):
                     continue
-                
+
                 text_prev = truncate_text(thoughts[thought_prev], MAX_CANDIDATE_LENGTH)
                 candidates.append({"id": thought_prev, "text": text_prev})
             
+            # =========================================================
+            # LOGIC BLOCK C: PREPARE PAYLOAD
+            # =========================================================
+            user_content = None
             if candidates:
                 # PREFIX CACHING: Static data first
                 user_content = json.dumps({
@@ -346,53 +406,66 @@ def _process_single_item(
                     "step_n": step_n,
                     "current_thought": text_n
                 }, ensure_ascii=False)
-                
-                queries_to_process.append((
-                    thought_n, candidates, user_content, anchor_prev_step
-                ))
+            
+            # Queue the job with pre-calculated fallback
+            # Note: We pass 'best_fallback' explicitly as 4th element
+            queries_to_process.append((
+                thought_n, candidates, user_content, best_fallback
+            ))
     
-    # Process queries with INNER THREAD POOL (5 workers)
+    # =========================================================
+    # SIMPLIFIED WORKER FUNCTION
+    # =========================================================
+    # The worker is now extremely clean. It has no logic about "causality" or "anchors"
+    # - it just executes the LLM call and uses the pre-calculated fallback if needed.
+    
     def find_parents(query_data):
-        thought_n, candidates, user_content, anchor_prev_step = query_data
+        # Unpack the pre-calculated fallback_id
+        thought_n, candidates, user_content, fallback_id = query_data
         
-        try:
-            messages = [
-                {"role": "system", "content": STEP4_SYSTEM_MESSAGE},
-                {"role": "user", "content": user_content}
-            ]
-            response, in_tokens, out_tokens, cache_hits = llm_client.generate(messages=messages)
-            parsed = extract_and_parse_json(response)
-            
-            parents = []
-            llm_selected = False
-            
-            if parsed and "parents" in parsed:
-                for parent_info in parsed["parents"]:
-                    parent_id = parent_info.get("id")
-                    category = parent_info.get("category", "Continuous Logic")
-                    
-                    # Verify valid candidate
-                    if not any(c['id'] == parent_id for c in candidates):
-                        continue
-                    
-                    cat_num = CATEGORY_MAP.get(category, 1)
-                    parents.append((parent_id, cat_num))
-                    llm_selected = True
-            
-            # LCoT STRUCTURAL FALLBACK
-            if not parents and anchor_prev_step is not None:
-                parents.append((anchor_prev_step, 5))
-            elif not parents:
-                parents.append((thought_n - 1, 5))
-            
-            return thought_n, parents, in_tokens, out_tokens, cache_hits
-            
-        except Exception as e:
-            print(f"Error finding parents for thought {thought_n}: {e}")
-            if anchor_prev_step is not None:
-                return thought_n, [(anchor_prev_step, 5)], 0, 0, 0
-            else:
-                return thought_n, [(thought_n - 1, 5)], 0, 0, 0
+        parents = []
+        in_tokens = 0
+        out_tokens = 0
+        cache_hits = 0
+
+        # 1. ATTEMPT LLM (Only if content exists)
+        if user_content:
+            try:
+                messages = [
+                    {"role": "system", "content": STEP4_SYSTEM_MESSAGE},
+                    {"role": "user", "content": user_content}
+                ]
+                response, in_tokens, out_tokens, cache_hits = llm_client.generate(messages=messages)
+                parsed = extract_and_parse_json(response)
+                
+                if parsed and "parents" in parsed:
+                    for p in parsed["parents"]:
+                        pid = p.get("id")
+                        
+                        # CACHING OPTIMIZATION: Apply causal filter POST-HOC on output
+                        # This allows input to be identical across thoughts (for caching)
+                        # while still enforcing the causal constraint on final edges
+                        if causal and pid >= thought_n:
+                            if debug:
+                                print(f"  Causal filter (post-hoc): Rejecting parent {pid} >= {thought_n}")
+                            continue
+                        
+                        # Validate parent is in our candidates list
+                        if any(c['id'] == pid for c in candidates):
+                            category = p.get("category", "Continuous Logic")
+                            cat_num = CATEGORY_MAP.get(category, 1)
+                            parents.append((pid, cat_num))
+
+            except Exception as e:
+                print(f"LLM Error on thought {thought_n}: {e}")
+
+        # 2. APPLY FALLBACK (If LLM failed, skipped, or returned nothing)
+        if not parents:
+            # We blindly trust the pre-calculated fallback from the main loop.
+            # It already accounts for Step 1 orphans, Causal filtering, and Anchors.
+            parents.append((fallback_id, 5))  # Category 5 = Fallback
+        
+        return thought_n, parents, in_tokens, out_tokens, cache_hits
     
     # Execute with controlled inner pool
     if queries_to_process:
