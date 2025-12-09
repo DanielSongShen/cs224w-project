@@ -1,10 +1,14 @@
-"""Step 4: Assign Parent Relationships
+"""Step 4: Assign Parent Relationships (FIXED VERSION)
 
 The most expensive step. Implements:
 - Prefix Caching Optimization (static data first in JSON)
 - Incremental Saving (immediate write-and-flush)
 - Robust Fallback (gap bridging + LCoT structural)
 - Async Support (batched processing like Steps 2 & 3)
+
+CRITICAL FIX:
+- Ensures Step 1 thoughts are connected to Root (0) when Step 0 is missing
+- Prevents orphaned nodes in the final graph
 """
 import json
 import time
@@ -58,7 +62,7 @@ def process_link(
     Returns:
         Items with added 'thought_relations' field
     """
-    print("\n=== Step 4: Assigning parent relationships (LCoT Structural) ===")
+    print("\n=== Step 4: Assigning parent relationships (LCoT Structural + Step 1 Fix) ===")
     start_time = time.time()
     
     # INCREMENTAL SAVING: Check for existing progress
@@ -205,6 +209,7 @@ def _process_single_item(
     Implements:
     - Coverage guarantee (sanitization)
     - Gap bridging (find nearest non-empty previous step)
+    - **CRITICAL FIX**: Step 1 → Root connection when Step 0 is missing
     - LCoT structural fallback (connect to anchor)
     - Prefix caching optimization
     - Type normalization (handles old pipeline data)
@@ -252,7 +257,7 @@ def _process_single_item(
     for t_id in missing_ids:
         # Inherit step from previous thought
         prev_id = t_id - 1
-        found_step = 1  # Default
+        found_step = -1  # Default
         
         if prev_id >= 0:
             for step_n, ids in step_to_thoughts.items():
@@ -297,6 +302,20 @@ def _process_single_item(
             prev_step_n -= 1
         
         thoughts_prev_step = step_to_thoughts.get(prev_step_n, [])
+        
+        # ============================================================================
+        # CRITICAL FIX: Ensure Step 1 thoughts connect to Root (0)
+        # ============================================================================
+        # When processing Step 1, if no Step 0 exists (thoughts_prev_step is empty),
+        # we need to explicitly add Root (thought 0) as a candidate parent.
+        # This prevents Step 1 thoughts from becoming orphaned nodes.
+        if not thoughts_prev_step and step_n == 1:
+            # Step 1 with no previous step → Use Root (0) as parent
+            thoughts_prev_step = [0]
+            if debug:
+                print(f"  Step 1 Fix: Using Root (0) as parent for Step 1 thoughts")
+        # ============================================================================
+        
         thoughts_n = step_to_thoughts[step_n]
         
         # Calculate anchor of previous step
