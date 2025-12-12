@@ -1,21 +1,10 @@
-# gpt5-mini
+# Generate tree dataset using gpt5-mini
 poetry run python3 scripts/01_parse_data.py --n_samples 1 --backend gpt5-mini --output_dir mini
 poetry run python3 scripts/01_1_visualize_tree.py --input_path mini/final.json -o mini -t
 
-# deepseek-v3.2
+# Generate tree dataset using deepseek-v3.2
 poetry run python3 scripts/01_parse_data.py --n_samples 1 --backend deepseek-v3.2 --output_dir deepseek
 poetry run python3 scripts/01_1_visualize_tree.py --input_path deepseek/final.json -o deepseek/visualizations -t
-
-poetry run python3 scripts/01_parse_data.py --backend deepseek-v3.2 --async --n_samples 500 --output_dir ./data/processed/deepseek/amc-aime
-poetry run python scripts/continue_from_step.py --step 4 --input data/processed/deepseek/amc-aime/process3.json --output_dir data/processed/deepseek/amc-aime --backend deepseek-v3.2 --async --batch_size 10
-
-poetry run python scripts/01_parse_data.py --n_samples 500 --backend deepseek-v3.2 --output_dir ./data/processed/deepseek/math
-# Balanced dataset
-poetry run python scripts/01_parse_data.py \
-    --n_samples 500 \
-    --sources math \
-    --balanced \
-    --output_dir ./data/processed/deepseek/math_balanced
 
 # Generate 2000 balanced samples (1000 from cn_k12 + 1000 from aops_forum)
 poetry run python scripts/01_parse_data.py --n_samples 500 --sources cn_k12 --balanced --backend deepseek-v3.2 --async --output_dir ./data/processed/deepseek/cn_k12
@@ -30,39 +19,22 @@ poetry run python scripts/01_parse_new_data.py \
     --async \
     --output_dir ./data/processed/deepseek/graph_math &
 
-# Concatenate JSONL files
-mkdir -p ./data/processed/deepseek/combined2
-cat ./data/processed/deepseek/math_balanced/final.json ./data/processed/deepseek/combined/final_regraded.json > ./data/processed/deepseek/combined2/final_regraded.json
-
-cat ./data/processed/deepseek/aops_forum/final.json ./data/processed/deepseek/cn_k12/final.json ./data/processed/deepseek/combined2/final_regraded.json > ./data/processed/deepseek/combined3/final_regraded.json
-
-
-# Regrade
-poetry run python scripts/00_fix_labels.py --input data/processed/deepseek/new_graphs_combined/final.json --output data/processed/deepseek/math/final_regraded.json
+# Regrade labels
+poetry run python scripts/utils/00_fix_labels.py --input data/processed/deepseek/new_graphs_combined/final.json --output data/processed/deepseek/math/final_regraded.json
 
 # Generate embeddings
-poetry run python scripts/03_precompute_embeddings.py --input data/processed/deepseek/small_causal_graph/final_regraded.json --output data/processed/deepseek/small_causal_graph --batch-size 16 --device cpu
+poetry run python scripts/03_precompute_embeddings.py --input data/processed/deepseek/small_causal_graph/final_regraded.json --output data/processed/deepseek/small_causal_graph2 --batch-size 16 --device cpu
 
 # Generate graph dataset
-poetry run python src/data/dataset.py data/processed/deepseek/combined_hard/final.json --root ./data/processed/deepseekNEW/combined_hard/directed --force-reload --no-reverse-edges
-poetry run python src/data/dataset.py data/processed/deepseek/combined_hard/final.json --root ./data/processed/deepseekNEW/combined_hard/undirected --force-reload
+poetry run python src/data/dataset.py data/processed/deepseek/combined_hard/final_regraded.json --root ./data/processed/deepseekNEW/combined_hard/directed2 --force-reload --no-reverse-edges
+poetry run python src/data/dataset.py data/processed/deepseek/combined_hard/final_regraded.json --root ./data/processed/deepseekNEW/combined_hard/undirected --force-reload
 
 # Convert json to jsonl
-./scripts/json_to_jsonl.sh data/processed/deepseek/new_graph_data_full/small_thoughts_fixed_causal.json data/processed/deepseek/small_causal_graph/final.json
+./scripts/utils/json_to_jsonl.sh data/processed/deepseek/new_graph_data_full/small_thoughts_fixed_causal.json data/processed/deepseek/small_causal_graph/final.json
 
 # Generate graph dataset from new reasoning_graph format (explicit nodes/edges)
 poetry run python src/data/dataset.py data/processed/deepseek/small_causal_graph/final_regraded.json --root ./data/processed/deepseekNEW/small_causal_graph/undirected --format graph --force-reload
 poetry run python src/data/dataset.py data/processed/deepseek/small_causal_graph/final_regraded.json --root ./data/processed/deepseekNEW/small_causal_graph/directed --format graph --force-reload --no-reverse-edges 
-
-# Training
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseekNEW/amc-aime/undirected/final_regraded_with_rev.pt --output-dir ./outputsNEW/amc-aime/undirected/models/simple_gin --model-type simple_gin --log-interval 1 --cross-validation --n-folds 5
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseekNEW/amc-aime/directed/final_regraded.pt --output-dir ./outputsNEW/amc-aime/directed/models/simple_gin --model-type simple_gin --log-interval 1 --cross-validation --n-folds 5
-
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/combined3NEW/models/hetero_gin --model-type hetero_gin --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/directed/final_regraded.pt --output-dir ./outputs/combined3NEW/directed/models/hetero_gin --model-type hetero_gin --log-interval 1
-
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/combined3NEW/models/hetero_gat --model-type hetero_gat --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined2/directed/final_regraded.pt --output-dir ./outputs/combined3NEW/directed/models/hetero_gat --model-type hetero_gat --log-interval 1
 
 # Training with new graph format (uses GraphNodeEncoder for [node_id, out_degree, in_degree] features)
 poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseekNEW/big_causal_graph/undirected/final_regraded_with_rev.pt --output-dir ./outputs/big_causal_graph/models/hetero_gat --model-type hetero_gat --encoder-type graph --log-interval 1
@@ -80,30 +52,10 @@ poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/
 poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/directed/final_regraded.pt --output-dir ./outputs/robust/models/hetero_gin --model-type hetero_gin --encoder-type robust --log-interval 1
 
 # Training with TextAwareEncoder
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/new_graphs_combined/directed/final_regraded.pt --output-dir ./outputs/text_aware/models/hetero_gin --model-type hetero_gin --encoder-type text_aware_graph --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/amc-aime/undirected/final_regraded_with_rev.pt --output-dir ./outputs/text_aware/models/hetero_gat --model-type hetero_gat --encoder-type robust --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/amc-aime/undirected/final_regraded_with_rev.pt --output-dir ./outputs/text_aware/models/hetero_gin --model-type hetero_gin --encoder-type robust --log-interval 1
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/new_graphs_combined/directed/final_regraded.pt --output-dir ./outputs/text_aware/models/hetero_gin2 --model-type hetero_gin --encoder-type text_aware_graph --log-interval 1
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/amc-aime/undirected/final_regraded_with_rev.pt --output-dir ./outputs/text_aware/models/hetero_gat --model-type hetero_gat --encoder-type text_aware --log-interval 1
 
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined/undirected/encoder/final_regraded_with_rev.pt --output-dir ./outputs/models/hetero_gat/encoder --model-type hetero_gat --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined/undirected/encoder/final_regraded_with_rev.pt --output-dir ./outputs/models/simple_gin/encoder --model-type simple_gin --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined/undirected/encoder/final_regraded_with_rev.pt --output-dir ./outputs/models/hetero_gin/encoder --model-type hetero_gin --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/math/undirected/encoder/final_with_rev.pt --output-dir ./outputs/models/math/simple_gin/encoder --model-type simple_gin --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt --output-dir ./outputs/models/math_balanced/simple_gin/encoder --model-type simple_gin --log-interval 1
-
-
-
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt --cross-validation --n-folds 5 --output-dir ./outputs/models/simple_gin/cv/math --model-type simple_gin --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt --cross-validation --n-folds 5 --output-dir ./outputs/models/hetero_gat/cv/math --model-type hetero_gat --log-interval 1
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt --cross-validation --n-folds 5 --output-dir ./outputs/models/hetero_gat/cv/math --model-type hetero_gin --log-interval 1
-
-
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt --cross-validation --n-folds 5 --output-dir ./outputs/models/simple_gin/cv/math --model-type simple_gin --log-interval 1
-
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt --cross-validation --n-folds 5 --output-dir ./outputs/models/simple_gin/cv/math --model-type simple_gin --log-interval 1 --hidden-channels 16 --dropout 0.5 --weight-decay 0.01 --batch-size 32
-poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt --cross-validation --n-folds 5 --output-dir ./outputs/models/hetero_gat/cv/math --model-type hetero_gat --log-interval 1
-
-
-# No node encoder
+# Training with no node encoder
 poetry run python scripts/02_train_model.py \
     --pt-file ./data/processed/deepseek/combined/undirected/encoder/final_regraded_with_rev.pt \
     --cross-validation --n-folds 5 \
@@ -118,10 +70,3 @@ nohup poetry run python scripts/02_1_hparam_sweeps.py --pt-file ./data/processed
 nohup poetry run python scripts/02_1_hparam_sweeps.py --pt-file ./data/processed/deepseek/combined/undirected/encoder/final_regraded_with_rev.pt --search-type random --n-trials 10 --models hetero_gin --verbose
 poetry run python scripts/02_1_hparam_sweeps.py --pt-file ./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt --search-type grid --models hetero_gat --verbose
 poetry run python scripts/02_1_hparam_sweeps.py --all-datasets --search-type random --n-trials 50
-
-# Visualize and generate graph statistics
-poetry run python analyze_graph_data.py data/processed/deepseekNEW/combined/undirected/final_regraded_with_rev.pt
-
-poetry run python analyze_graph_data.py data/processed/deepseekNEW/combined_easy/undirected/final_regraded_with_rev.pt
-poetry run python analyze_graph_data.py data/processed/deepseekNEW/combined_hard/undirected/final_regraded_with_rev.pt
-poetry run python analyze_graph_data.py data/processed/deepseekNEW/small_causal_graph/undirected/final_regraded_with_rev.pt
