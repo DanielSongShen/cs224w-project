@@ -8,9 +8,9 @@ import json
 
 
 def main():
-    final_path = "data/processed/deepseek/new_graphs_combined/final.json"
-    regraded_path = "data/processed/deepseek/combined/final_regraded.json"
-    output_path = "data/processed/deepseek/new_graphs_combined/final_with_scores.json"
+    final_path = "data/processed/deepseek/small_causal_graph/final.json"
+    regraded_path = "data/processed/deepseek/big_graph/final.json"
+    output_path = "data/processed/deepseek/small_causal_graph/final_with_scores.json"
     
     # Step 1: Build tag -> score mapping from regraded file
     print(f"Loading scores from {regraded_path}...")

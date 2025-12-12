@@ -383,10 +383,10 @@ class GraphClassificationTrainer:
             if self.scheduler is not None:
                 self.scheduler.step()
             
-            # Track best model (by F1 score)
-            if val_f1 > self.metrics.best_val_f1:
-                self.metrics.best_val_f1 = val_f1
+            # Track best model (by accuracy)
+            if val_acc > self.metrics.best_val_acc:
                 self.metrics.best_val_acc = val_acc
+                self.metrics.best_val_f1 = val_f1
                 self.metrics.best_epoch = epoch
                 if self.config.save_best:
                     self.best_model_state = copy.deepcopy(self.model.state_dict())
@@ -403,8 +403,8 @@ class GraphClassificationTrainer:
                     f"{class_acc_str}"
                 )
             
-            # Early stopping check (by F1)
-            if self.early_stopping(val_f1):
+            # Early stopping check (by acc)
+            if self.early_stopping(val_acc):
                 if self.config.verbose:
                     print(f"Early stopping at epoch {epoch}")
                 break

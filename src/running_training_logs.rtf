@@ -1,0 +1,596 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2867
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/robust/models/simple_gin --model-type simple_gin --encoder-type robust --log-interval 1\
+\
+============================================================\
+GNN Training for Graph Classification\
+============================================================\
+\
+Loading pre-processed dataset from: ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt\
+\
+Dataset: PreProcessedDataset(4474 graphs, file=final_regraded_with_rev.pt)\
+  Total graphs: 4474\
+  Positive (correct): 2420\
+  Negative (incorrect): 2054\
+  Class ratio: 54.09%\
+  Avg nodes: 44.3\
+  Edge types: 10\
+\
+Graph structure:\
+  Input features: 4\
+  Edge types: [('thought', 'root', 'thought'), ('thought', 'rev_root', 'thought'), ('thought', 'continuous_logic', 'thought'), ('thought', 'rev_continuous_logic', 'thought'), ('thought', 'exploration', 'thought'), ('thought', 'rev_exploration', 'thought'), ('thought', 'backtracking', 'thought'), ('thought', 'rev_backtracking', 'thought'), ('thought', 'validation', 'thought'), ('thought', 'rev_validation', 'thought')]\
+\
+============================================================\
+Training with 80%/10%/10% split\
+============================================================\
+\
+Data splits:\
+  Train batches: 112 (3579 samples)\
+  Val batches: 14 (447 samples)\
+  Test batches: 14 (448 samples)\
+\
+Creating simple_gin model...\
+/Users/daniel/Desktop/present/classes/CS224w/cs224w-project/src/models/gin.py:681: UserWarning: 'nn.glob.GlobalAttention' is deprecated, use 'nn.aggr.AttentionalAggregation' instead\
+  self.pool = GlobalAttention(gate_nn)\
+  Parameters: 10,244\
+\
+Training...\
+------------------------------------------------------------\
+Training on mps\
+Model parameters: 10,244\
+------------------------------------------------------------\
+Epoch 001 | Train Loss: 0.6411 | Train Acc: 0.6491 | Val Loss: 0.6214 | Val Acc: 0.6823 | Val F1: 0.7351 | Class 0: 0.5268, Class 1: 0.8140\
+Epoch 002 | Train Loss: 0.6337 | Train Acc: 0.6558 | Val Loss: 0.6182 | Val Acc: 0.6510 | Val F1: 0.6892 | Class 0: 0.5756, Class 1: 0.7149\
+Epoch 003 | Train Loss: 0.6301 | Train Acc: 0.6591 | Val Loss: 0.6161 | Val Acc: 0.6890 | Val F1: 0.7402 | Class 0: 0.5366, Class 1: 0.8182\
+Epoch 004 | Train Loss: 0.6290 | Train Acc: 0.6655 | Val Loss: 0.6128 | Val Acc: 0.6711 | Val F1: 0.7189 | Class 0: 0.5463, Class 1: 0.7769\
+Epoch 005 | Train Loss: 0.6278 | Train Acc: 0.6650 | Val Loss: 0.6103 | Val Acc: 0.6734 | Val F1: 0.7068 | Class 0: 0.6098, Class 1: 0.7273\
+Epoch 006 | Train Loss: 0.6261 | Train Acc: 0.6678 | Val Loss: 0.6198 | Val Acc: 0.6555 | Val F1: 0.6870 | Class 0: 0.6049, Class 1: 0.6983\
+Epoch 007 | Train Loss: 0.6232 | Train Acc: 0.6661 | Val Loss: 0.6176 | Val Acc: 0.6779 | Val F1: 0.7198 | Class 0: 0.5756, Class 1: 0.7645\
+Epoch 008 | Train Loss: 0.6216 | Train Acc: 0.6675 | Val Loss: 0.6147 | Val Acc: 0.6734 | Val F1: 0.7171 | Class 0: 0.5659, Class 1: 0.7645\
+Epoch 009 | Train Loss: 0.6194 | Train Acc: 0.6714 | Val Loss: 0.6129 | Val Acc: 0.6622 | Val F1: 0.7010 | Class 0: 0.5805, Class 1: 0.7314\
+Epoch 010 | Train Loss: 0.6239 | Train Acc: 0.6692 | Val Loss: 0.6149 | Val Acc: 0.6644 | Val F1: 0.6964 | Class 0: 0.6098, Class 1: 0.7107\
+Epoch 011 | Train Loss: 0.6216 | Train Acc: 0.6639 | Val Loss: 0.6151 | Val Acc: 0.6734 | Val F1: 0.7214 | Class 0: 0.5463, Class 1: 0.7810\
+Epoch 012 | Train Loss: 0.6182 | Train Acc: 0.6731 | Val Loss: 0.6160 | Val Acc: 0.6398 | Val F1: 0.6680 | Class 0: 0.6049, Class 1: 0.6694\
+Epoch 013 | Train Loss: 0.6202 | Train Acc: 0.6667 | Val Loss: 0.6304 | Val Acc: 0.6823 | Val F1: 0.7437 | Class 0: 0.4829, Class 1: 0.8512\
+Epoch 014 | Train Loss: 0.6183 | Train Acc: 0.6742 | Val Loss: 0.6204 | Val Acc: 0.6756 | Val F1: 0.7300 | Class 0: 0.5171, Class 1: 0.8099\
+Epoch 015 | Train Loss: 0.6168 | Train Acc: 0.6773 | Val Loss: 0.6276 | Val Acc: 0.6801 | Val F1: 0.7433 | Class 0: 0.4732, Class 1: 0.8554\
+Epoch 016 | Train Loss: 0.6139 | Train Acc: 0.6739 | Val Loss: 0.6203 | Val Acc: 0.6555 | Val F1: 0.6883 | Class 0: 0.6000, Class 1: 0.7025\
+Epoch 017 | Train Loss: 0.6161 | Train Acc: 0.6711 | Val Loss: 0.6261 | Val Acc: 0.6510 | Val F1: 0.6905 | Class 0: 0.5707, Class 1: 0.7190\
+Epoch 018 | Train Loss: 0.6132 | Train Acc: 0.6711 | Val Loss: 0.6170 | Val Acc: 0.6711 | Val F1: 0.7232 | Class 0: 0.5268, Class 1: 0.7934\
+Epoch 019 | Train Loss: 0.6133 | Train Acc: 0.6767 | Val Loss: 0.6184 | Val Acc: 0.6510 | Val F1: 0.6855 | Class 0: 0.5902, Class 1: 0.7025\
+Epoch 020 | Train Loss: 0.6147 | Train Acc: 0.6678 | Val Loss: 0.6315 | Val Acc: 0.6644 | Val F1: 0.7180 | Class 0: 0.5171, Class 1: 0.7893\
+Epoch 021 | Train Loss: 0.6126 | Train Acc: 0.6767 | Val Loss: 0.6168 | Val Acc: 0.6510 | Val F1: 0.6905 | Class 0: 0.5707, Class 1: 0.7190\
+Epoch 022 | Train Loss: 0.6113 | Train Acc: 0.6759 | Val Loss: 0.6316 | Val Acc: 0.6711 | Val F1: 0.7101 | Class 0: 0.5854, Class 1: 0.7438\
+Epoch 023 | Train Loss: 0.6121 | Train Acc: 0.6812 | Val Loss: 0.6270 | Val Acc: 0.6532 | Val F1: 0.6931 | Class 0: 0.5707, Class 1: 0.7231\
+Epoch 024 | Train Loss: 0.6100 | Train Acc: 0.6801 | Val Loss: 0.6311 | Val Acc: 0.6667 | Val F1: 0.7096 | Class 0: 0.5659, Class 1: 0.7521\
+Epoch 025 | Train Loss: 0.6122 | Train Acc: 0.6725 | Val Loss: 0.6316 | Val Acc: 0.6286 | Val F1: 0.6667 | Class 0: 0.5610, Class 1: 0.6860\
+Epoch 026 | Train Loss: 0.6100 | Train Acc: 0.6806 | Val Loss: 0.6287 | Val Acc: 0.6465 | Val F1: 0.6996 | Class 0: 0.5122, Class 1: 0.7603\
+Epoch 027 | Train Loss: 0.6148 | Train Acc: 0.6854 | Val Loss: 0.6227 | Val Acc: 0.6398 | Val F1: 0.6721 | Class 0: 0.5902, Class 1: 0.6818\
+Epoch 028 | Train Loss: 0.6094 | Train Acc: 0.6767 | Val Loss: 0.6233 | Val Acc: 0.6779 | Val F1: 0.7343 | Class 0: 0.5073, Class 1: 0.8223\
+Epoch 029 | Train Loss: 0.6084 | Train Acc: 0.6770 | Val Loss: 0.6232 | Val Acc: 0.6600 | Val F1: 0.6972 | Class 0: 0.5854, Class 1: 0.7231\
+Epoch 030 | Train Loss: 0.6064 | Train Acc: 0.6745 | Val Loss: 0.6256 | Val Acc: 0.6577 | Val F1: 0.7075 | Class 0: 0.5317, Class 1: 0.7645\
+Epoch 031 | Train Loss: 0.6049 | Train Acc: 0.6843 | Val Loss: 0.6291 | Val Acc: 0.6465 | Val F1: 0.6681 | Class 0: 0.6341, Class 1: 0.6570\
+Epoch 032 | Train Loss: 0.6117 | Train Acc: 0.6750 | Val Loss: 0.6212 | Val Acc: 0.6756 | Val F1: 0.7140 | Class 0: 0.5902, Class 1: 0.7479\
+Epoch 033 | Train Loss: 0.6038 | Train Acc: 0.6820 | Val Loss: 0.6320 | Val Acc: 0.6734 | Val F1: 0.7296 | Class 0: 0.5073, Class 1: 0.8140\
+\
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/directed/final_regraded.pt --output-dir ./outputs/robust/models/hetero_gat --model-type hetero_gat --encoder-type robust --log-interval 1\
+\
+============================================================\
+GNN Training for Graph Classification\
+============================================================\
+\
+Loading pre-processed dataset from: ./data/processed/deepseek/combined3/directed/final_regraded.pt\
+\
+Dataset: PreProcessedDataset(4474 graphs, file=final_regraded.pt)\
+  Total graphs: 4474\
+  Positive (correct): 2420\
+  Negative (incorrect): 2054\
+  Class ratio: 54.09%\
+  Avg nodes: 44.3\
+  Edge types: 5\
+\
+Graph structure:\
+  Input features: 4\
+  Edge types: [('thought', 'root', 'thought'), ('thought', 'continuous_logic', 'thought'), ('thought', 'exploration', 'thought'), ('thought', 'backtracking', 'thought'), ('thought', 'validation', 'thought')]\
+\
+============================================================\
+Training with 80%/10%/10% split\
+============================================================\
+\
+Data splits:\
+  Train batches: 112 (3579 samples)\
+  Val batches: 14 (447 samples)\
+  Test batches: 14 (448 samples)\
+\
+Creating hetero_gat model...\
+  Parameters: 131,747\
+\
+Training...\
+------------------------------------------------------------\
+Training on mps\
+Model parameters: 131,747\
+------------------------------------------------------------\
+Epoch 001 | Train Loss: 0.6327 | Train Acc: 0.6533 | Val Loss: 0.6228 | Val Acc: 0.6667 | Val F1: 0.7151 | Class 0: 0.5415, Class 1: 0.7727\
+Epoch 002 | Train Loss: 0.6286 | Train Acc: 0.6594 | Val Loss: 0.6225 | Val Acc: 0.6577 | Val F1: 0.7223 | Class 0: 0.4634, Class 1: 0.8223\
+Epoch 003 | Train Loss: 0.6219 | Train Acc: 0.6664 | Val Loss: 0.6196 | Val Acc: 0.6801 | Val F1: 0.7327 | Class 0: 0.5268, Class 1: 0.8099\
+Epoch 004 | Train Loss: 0.6175 | Train Acc: 0.6692 | Val Loss: 0.6261 | Val Acc: 0.6622 | Val F1: 0.7124 | Class 0: 0.5317, Class 1: 0.7727\
+Epoch 005 | Train Loss: 0.6208 | Train Acc: 0.6642 | Val Loss: 0.6206 | Val Acc: 0.6711 | Val F1: 0.7273 | Class 0: 0.5073, Class 1: 0.8099\
+Epoch 006 | Train Loss: 0.6124 | Train Acc: 0.6739 | Val Loss: 0.6185 | Val Acc: 0.6622 | Val F1: 0.6912 | Class 0: 0.6195, Class 1: 0.6983\
+Epoch 007 | Train Loss: 0.6090 | Train Acc: 0.6748 | Val Loss: 0.6346 | Val Acc: 0.6644 | Val F1: 0.7148 | Class 0: 0.5317, Class 1: 0.7769\
+Epoch 008 | Train Loss: 0.6013 | Train Acc: 0.6829 | Val Loss: 0.6447 | Val Acc: 0.6465 | Val F1: 0.7074 | Class 0: 0.4780, Class 1: 0.7893\
+Epoch 009 | Train Loss: 0.6027 | Train Acc: 0.6725 | Val Loss: 0.6348 | Val Acc: 0.6622 | Val F1: 0.7250 | Class 0: 0.4732, Class 1: 0.8223\
+Epoch 010 | Train Loss: 0.5980 | Train Acc: 0.6829 | Val Loss: 0.6502 | Val Acc: 0.6465 | Val F1: 0.6938 | Class 0: 0.5366, Class 1: 0.7397\
+\
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/amc-aime/undirected/final_regraded_with_rev.pt --output-dir ./outputs/text_aware/models/simple_gin --model-type simple_gin --encoder-type text_aware --log-interval 1\
+\
+============================================================\
+GNN Training for Graph Classification\
+============================================================\
+\
+Loading pre-processed dataset from: ./data/processed/deepseek/amc-aime/undirected/final_regraded_with_rev.pt\
+\
+Dataset: PreProcessedDataset(495 graphs, file=final_regraded_with_rev.pt)\
+  Total graphs: 495\
+  Positive (correct): 277\
+  Negative (incorrect): 218\
+  Class ratio: 55.96%\
+  Avg nodes: 46.9\
+  Edge types: 10\
+\
+Graph structure:\
+  Input features: 4\
+  Edge types: [('thought', 'root', 'thought'), ('thought', 'rev_root', 'thought'), ('thought', 'continuous_logic', 'thought'), ('thought', 'rev_continuous_logic', 'thought'), ('thought', 'exploration', 'thought'), ('thought', 'rev_exploration', 'thought'), ('thought', 'backtracking', 'thought'), ('thought', 'rev_backtracking', 'thought'), ('thought', 'validation', 'thought'), ('thought', 'rev_validation', 'thought')]\
+\
+============================================================\
+Training with 80%/10%/10% split\
+============================================================\
+\
+Data splits:\
+  Train batches: 13 (395 samples)\
+  Val batches: 2 (48 samples)\
+  Test batches: 2 (52 samples)\
+\
+Creating simple_gin model...\
+/Users/daniel/Desktop/present/classes/CS224w/cs224w-project/src/models/gin.py:595: UserWarning: 'nn.glob.GlobalAttention' is deprecated, use 'nn.aggr.AttentionalAggregation' instead\
+  self.pool = GlobalAttention(gate_nn)\
+  Parameters: 63,556\
+\
+Training...\
+------------------------------------------------------------\
+Training on mps\
+Model parameters: 63,556\
+------------------------------------------------------------\
+Epoch 001 | Train Loss: 0.7092 | Train Acc: 0.5165 | Val Loss: 0.6914 | Val Acc: 0.5625 | Val F1: 0.7200 | Class 0: 0.0000, Class 1: 1.0000\
+Epoch 002 | Train Loss: 0.6622 | Train Acc: 0.5772 | Val Loss: 0.6841 | Val Acc: 0.5208 | Val F1: 0.6230 | Class 0: 0.2857, Class 1: 0.7037\
+Epoch 003 | Train Loss: 0.6331 | Train Acc: 0.6506 | Val Loss: 0.6571 | Val Acc: 0.6458 | Val F1: 0.6792 | Class 0: 0.6190, Class 1: 0.6667\
+Epoch 004 | Train Loss: 0.6217 | Train Acc: 0.6582 | Val Loss: 0.6360 | Val Acc: 0.6458 | Val F1: 0.6222 | Class 0: 0.8095, Class 1: 0.5185\
+Epoch 005 | Train Loss: 0.6113 | Train Acc: 0.6709 | Val Loss: 0.6590 | Val Acc: 0.6667 | Val F1: 0.7241 | Class 0: 0.5238, Class 1: 0.7778\
+Epoch 006 | Train Loss: 0.6126 | Train Acc: 0.6532 | Val Loss: 0.6701 | Val Acc: 0.6458 | Val F1: 0.6909 | Class 0: 0.5714, Class 1: 0.7037\
+Epoch 007 | Train Loss: 0.5838 | Train Acc: 0.6759 | Val Loss: 0.7167 | Val Acc: 0.6458 | Val F1: 0.6909 | Class 0: 0.5714, Class 1: 0.7037\
+Epoch 008 | Train Loss: 0.5730 | Train Acc: 0.6987 | Val Loss: 0.7381 | Val Acc: 0.6250 | Val F1: 0.7097 | Class 0: 0.3810, Class 1: 0.8148\
+Epoch 009 | Train Loss: 0.5635 | Train Acc: 0.7114 | Val Loss: 0.6710 | Val Acc: 0.6458 | Val F1: 0.6792 | Class 0: 0.6190, Class 1: 0.6667\
+Epoch 010 | Train Loss: 0.5704 | Train Acc: 0.6709 | Val Loss: 0.8315 | Val Acc: 0.5000 | Val F1: 0.5714 | Class 0: 0.3810, Class 1: 0.5926\
+Epoch 011 | Train Loss: 0.5379 | Train Acc: 0.7266 | Val Loss: 0.7235 | Val Acc: 0.6667 | Val F1: 0.7037 | Class 0: 0.6190, Class 1: 0.7037\
+Epoch 012 | Train Loss: 0.5153 | Train Acc: 0.7570 | Val Loss: 0.6842 | Val Acc: 0.6875 | Val F1: 0.7273 | Class 0: 0.6190, Class 1: 0.7407\
+Epoch 013 | Train Loss: 0.5076 | Train Acc: 0.7671 | Val Loss: 0.8900 | Val Acc: 0.6875 | Val F1: 0.7541 | Class 0: 0.4762, Class 1: 0.8519\
+Epoch 014 | Train Loss: 0.5257 | Train Acc: 0.7443 | Val Loss: 0.7915 | Val Acc: 0.6667 | Val F1: 0.6923 | Class 0: 0.6667, Class 1: 0.6667\
+Epoch 015 | Train Loss: 0.5257 | Train Acc: 0.7544 | Val Loss: 0.8701 | Val Acc: 0.6667 | Val F1: 0.7419 | Class 0: 0.4286, Class 1: 0.8519\
+Epoch 016 | Train Loss: 0.5257 | Train Acc: 0.7367 | Val Loss: 0.7968 | Val Acc: 0.6458 | Val F1: 0.7018 | Class 0: 0.5238, Class 1: 0.7407\
+Epoch 017 | Train Loss: 0.5344 | Train Acc: 0.7342 | Val Loss: 0.8199 | Val Acc: 0.5208 | Val F1: 0.5490 | Class 0: 0.5238, Class 1: 0.5185\
+Epoch 018 | Train Loss: 0.4965 | Train Acc: 0.7696 | Val Loss: 0.7790 | Val Acc: 0.6458 | Val F1: 0.6792 | Class 0: 0.6190, Class 1: 0.6667\
+Epoch 019 | Train Loss: 0.4715 | Train Acc: 0.7873 | Val Loss: 0.8283 | Val Acc: 0.6667 | Val F1: 0.7419 | Class 0: 0.4286, Class 1: 0.8519\
+Epoch 020 | Train Loss: 0.4735 | Train Acc: 0.7671 | Val Loss: 0.8627 | Val Acc: 0.6458 | Val F1: 0.6667 | Class 0: 0.6667, Class 1: 0.6296\
+Epoch 021 | Train Loss: 0.4881 | Train Acc: 0.7671 | Val Loss: 0.7221 | Val Acc: 0.7083 | Val F1: 0.7586 | Class 0: 0.5714, Class 1: 0.8148\
+Epoch 022 | Train Loss: 0.4951 | Train Acc: 0.7772 | Val Loss: 0.9317 | Val Acc: 0.6250 | Val F1: 0.7273 | Class 0: 0.2857, Class 1: 0.8889\
+Epoch 023 | Train Loss: 0.4748 | Train Acc: 0.7595 | Val Loss: 0.8908 | Val Acc: 0.6458 | Val F1: 0.6909 | Class 0: 0.5714, Class 1: 0.7037\
+Epoch 024 | Train Loss: 0.4285 | Train Acc: 0.8000 | Val Loss: 0.8989 | Val Acc: 0.6042 | Val F1: 0.6275 | Class 0: 0.6190, Class 1: 0.5926\
+Epoch 025 | Train Loss: 0.4530 | Train Acc: 0.7924 | Val Loss: 0.8986 | Val Acc: 0.6458 | Val F1: 0.6531 | Class 0: 0.7143, Class 1: 0.5926\
+Epoch 026 | Train Loss: 0.4265 | Train Acc: 0.8127 | Val Loss: 0.9036 | Val Acc: 0.6458 | Val F1: 0.6792 | Class 0: 0.6190, Class 1: 0.6667\
+Epoch 027 | Train Loss: 0.4307 | Train Acc: 0.8025 | Val Loss: 0.8912 | Val Acc: 0.6875 | Val F1: 0.7368 | Class 0: 0.5714, Class 1: 0.7778\
+Epoch 028 | Train Loss: 0.4030 | Train Acc: 0.8203 | Val Loss: 0.7633 | Val Acc: 0.7083 | Val F1: 0.7407 | Class 0: 0.6667, Class 1: 0.7407\
+Epoch 029 | Train Loss: 0.3992 | Train Acc: 0.8354 | Val Loss: 0.9386 | Val Acc: 0.6875 | Val F1: 0.7368 | Class 0: 0.5714, Class 1: 0.7778\
+Epoch 030 | Train Loss: 0.3918 | Train Acc: 0.8278 | Val Loss: 1.1163 | Val Acc: 0.6250 | Val F1: 0.6667 | Class 0: 0.5714, Class 1: 0.6667\
+Epoch 031 | Train Loss: 0.3958 | Train Acc: 0.8177 | Val Loss: 1.1100 | Val Acc: 0.7083 | Val F1: 0.7500 | Class 0: 0.6190, Class 1: 0.7778\
+Epoch 032 | Train Loss: 0.3830 | Train Acc: 0.8430 | Val Loss: 0.9238 | Val Acc: 0.6667 | Val F1: 0.6667 | Class 0: 0.7619, Class 1: 0.5926\
+Epoch 033 | Train Loss: 0.3674 | Train Acc: 0.8329 | Val Loss: 1.1282 | Val Acc: 0.5625 | Val F1: 0.6038 | Class 0: 0.5238, Class 1: 0.5926\
+Epoch 034 | Train Loss: 0.3950 | Train Acc: 0.8278 | Val Loss: 1.2990 | Val Acc: 0.6042 | Val F1: 0.6275 | Class 0: 0.6190, Class 1: 0.5926\
+Epoch 035 | Train Loss: 0.4065 | Train Acc: 0.8076 | Val Loss: 1.0791 | Val Acc: 0.5625 | Val F1: 0.6038 | Class 0: 0.5238, Class 1: 0.5926\
+Epoch 036 | Train Loss: 0.3715 | Train Acc: 0.8354 | Val Loss: 1.0286 | Val Acc: 0.5625 | Val F1: 0.5333 | Class 0: 0.7143, Class 1: 0.4444\
+Epoch 037 | Train Loss: 0.3546 | Train Acc: 0.8582 | Val Loss: 0.9454 | Val Acc: 0.6875 | Val F1: 0.7059 | Class 0: 0.7143, Class 1: 0.6667\
+Epoch 038 | Train Loss: 0.3372 | Train Acc: 0.8582 | Val Loss: 0.9170 | Val Acc: 0.6458 | Val F1: 0.6667 | Class 0: 0.6667, Class 1: 0.6296\
+Epoch 039 | Train Loss: 0.3213 | Train Acc: 0.8785 | Val Loss: 1.0463 | Val Acc: 0.6458 | Val F1: 0.6792 | Class 0: 0.6190, Class 1: 0.6667\
+Epoch 040 | Train Loss: 0.3092 | Train Acc: 0.8759 | Val Loss: 1.1980 | Val Acc: 0.5833 | Val F1: 0.5238 | Class 0: 0.8095, Class 1: 0.4074\
+Epoch 041 | Train Loss: 0.3187 | Train Acc: 0.8709 | Val Loss: 1.3743 | Val Acc: 0.5208 | Val F1: 0.5306 | Class 0: 0.5714, Class 1: 0.4815\
+Early stopping at epoch 41\
+Restored best model from epoch 21\
+Checkpoint saved to ./outputs/text_aware/models/simple_gin/checkpoint.pt\
+------------------------------------------------------------\
+Training complete. Best Val F1: 0.7586 (Acc: 0.7083) at epoch 21\
+\
+============================================================\
+Evaluating on test set\
+============================================================\
+Test Results:\
+  Accuracy: 0.6538\
+  Precision: 0.6667\
+  Recall: 0.7586\
+  F1 Score: 0.7097\
+  Class 0 Accuracy: 0.5217\
+  Class 1 Accuracy: 0.7586\
+\
+Model saved to ./outputs/text_aware/models/simple_gin/simple_gin_model_seed42.pth\
+Results saved to ./outputs/text_aware/models/simple_gin/results_seed42.json\
+\
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt --output-dir ./outputs/robust/models/simple_gin --model-type simple_gin --encoder-type robust --log-interval 1\
+\
+============================================================\
+GNN Training for Graph Classification\
+============================================================\
+\
+Loading pre-processed dataset from: ./data/processed/deepseek/combined3/undirected/final_regraded_with_rev.pt\
+\
+Dataset: PreProcessedDataset(4474 graphs, file=final_regraded_with_rev.pt)\
+  Total graphs: 4474\
+  Positive (correct): 2420\
+  Negative (incorrect): 2054\
+  Class ratio: 54.09%\
+  Avg nodes: 44.3\
+  Edge types: 10\
+\
+Graph structure:\
+  Input features: 4\
+  Edge types: [('thought', 'root', 'thought'), ('thought', 'rev_root', 'thought'), ('thought', 'continuous_logic', 'thought'), ('thought', 'rev_continuous_logic', 'thought'), ('thought', 'exploration', 'thought'), ('thought', 'rev_exploration', 'thought'), ('thought', 'backtracking', 'thought'), ('thought', 'rev_backtracking', 'thought'), ('thought', 'validation', 'thought'), ('thought', 'rev_validation', 'thought')]\
+\
+============================================================\
+Training with 80%/10%/10% split\
+============================================================\
+\
+Data splits:\
+  Train batches: 112 (3579 samples)\
+  Val batches: 14 (447 samples)\
+  Test batches: 14 (448 samples)\
+\
+Creating simple_gin model...\
+/Users/daniel/Desktop/present/classes/CS224w/cs224w-project/src/models/gin.py:482: UserWarning: 'nn.glob.GlobalAttention' is deprecated, use 'nn.aggr.AttentionalAggregation' instead\
+  self.pool = GlobalAttention(gate_nn)\
+  Parameters: 38,916\
+\
+Training...\
+------------------------------------------------------------\
+Training on mps\
+Model parameters: 38,916\
+------------------------------------------------------------\
+Epoch 001 | Train Loss: 0.6490 | Train Acc: 0.6264 | Val Loss: 0.6397 | Val Acc: 0.6622 | Val F1: 0.7113 | Class 0: 0.5366, Class 1: 0.7686\
+Epoch 002 | Train Loss: 0.6390 | Train Acc: 0.6569 | Val Loss: 0.6297 | Val Acc: 0.6577 | Val F1: 0.6922 | Class 0: 0.5951, Class 1: 0.7107\
+Epoch 003 | Train Loss: 0.6327 | Train Acc: 0.6547 | Val Loss: 0.6144 | Val Acc: 0.6689 | Val F1: 0.7063 | Class 0: 0.5902, Class 1: 0.7355\
+Epoch 004 | Train Loss: 0.6272 | Train Acc: 0.6639 | Val Loss: 0.6116 | Val Acc: 0.6711 | Val F1: 0.7018 | Class 0: 0.6195, Class 1: 0.7149\
+Epoch 005 | Train Loss: 0.6311 | Train Acc: 0.6597 | Val Loss: 0.6095 | Val Acc: 0.6756 | Val F1: 0.7162 | Class 0: 0.5805, Class 1: 0.7562\
+Epoch 006 | Train Loss: 0.6280 | Train Acc: 0.6519 | Val Loss: 0.6259 | Val Acc: 0.6443 | Val F1: 0.6328 | Class 0: 0.7366, Class 1: 0.5661\
+Epoch 007 | Train Loss: 0.6235 | Train Acc: 0.6653 | Val Loss: 0.6172 | Val Acc: 0.6779 | Val F1: 0.7343 | Class 0: 0.5073, Class 1: 0.8223\
+Epoch 008 | Train Loss: 0.6249 | Train Acc: 0.6683 | Val Loss: 0.6282 | Val Acc: 0.6532 | Val F1: 0.6906 | Class 0: 0.5805, Class 1: 0.7149\
+Epoch 009 | Train Loss: 0.6240 | Train Acc: 0.6633 | Val Loss: 0.6144 | Val Acc: 0.6644 | Val F1: 0.7000 | Class 0: 0.5951, Class 1: 0.7231\
+Epoch 010 | Train Loss: 0.6268 | Train Acc: 0.6577 | Val Loss: 0.6132 | Val Acc: 0.6510 | Val F1: 0.6609 | Class 0: 0.6780, Class 1: 0.6281\
+Epoch 011 | Train Loss: 0.6225 | Train Acc: 0.6672 | Val Loss: 0.6173 | Val Acc: 0.6555 | Val F1: 0.6831 | Class 0: 0.6195, Class 1: 0.6860\
+Epoch 012 | Train Loss: 0.6200 | Train Acc: 0.6655 | Val Loss: 0.6254 | Val Acc: 0.6980 | Val F1: 0.7477 | Class 0: 0.5463, Class 1: 0.8264\
+Epoch 013 | Train Loss: 0.6184 | Train Acc: 0.6695 | Val Loss: 0.6198 | Val Acc: 0.6801 | Val F1: 0.7255 | Class 0: 0.5610, Class 1: 0.7810\
+Epoch 014 | Train Loss: 0.6210 | Train Acc: 0.6703 | Val Loss: 0.6147 | Val Acc: 0.6779 | Val F1: 0.7154 | Class 0: 0.5951, Class 1: 0.7479\
+Epoch 015 | Train Loss: 0.6198 | Train Acc: 0.6742 | Val Loss: 0.6258 | Val Acc: 0.6711 | Val F1: 0.7123 | Class 0: 0.5756, Class 1: 0.7521\
+Epoch 016 | Train Loss: 0.6210 | Train Acc: 0.6672 | Val Loss: 0.6173 | Val Acc: 0.6711 | Val F1: 0.6982 | Class 0: 0.6341, Class 1: 0.7025\
+Epoch 017 | Train Loss: 0.6229 | Train Acc: 0.6625 | Val Loss: 0.6188 | Val Acc: 0.6644 | Val F1: 0.6976 | Class 0: 0.6049, Class 1: 0.7149\
+Epoch 018 | Train Loss: 0.6203 | Train Acc: 0.6706 | Val Loss: 0.6137 | Val Acc: 0.6555 | Val F1: 0.6831 | Class 0: 0.6195, Class 1: 0.6860\
+Epoch 019 | Train Loss: 0.6182 | Train Acc: 0.6728 | Val Loss: 0.6166 | Val Acc: 0.6801 | Val F1: 0.7223 | Class 0: 0.5756, Class 1: 0.7686\
+Epoch 020 | Train Loss: 0.6192 | Train Acc: 0.6753 | Val Loss: 0.6193 | Val Acc: 0.6644 | Val F1: 0.7232 | Class 0: 0.4927, Class 1: 0.8099\
+Epoch 021 | Train Loss: 0.6219 | Train Acc: 0.6664 | Val Loss: 0.6148 | Val Acc: 0.6443 | Val F1: 0.6566 | Class 0: 0.6634, Class 1: 0.6281\
+Epoch 022 | Train Loss: 0.6166 | Train Acc: 0.6742 | Val Loss: 0.6096 | Val Acc: 0.6622 | Val F1: 0.6780 | Class 0: 0.6683, Class 1: 0.6570\
+Epoch 023 | Train Loss: 0.6178 | Train Acc: 0.6734 | Val Loss: 0.6302 | Val Acc: 0.6734 | Val F1: 0.7245 | Class 0: 0.5317, Class 1: 0.7934\
+Epoch 024 | Train Loss: 0.6227 | Train Acc: 0.6692 | Val Loss: 0.6150 | Val Acc: 0.6756 | Val F1: 0.7082 | Class 0: 0.6146, Class 1: 0.7273\
+Epoch 025 | Train Loss: 0.6210 | Train Acc: 0.6709 | Val Loss: 0.6131 | Val Acc: 0.6689 | Val F1: 0.6967 | Class 0: 0.6293, Class 1: 0.7025\
+Epoch 026 | Train Loss: 0.6187 | Train Acc: 0.6737 | Val Loss: 0.6225 | Val Acc: 0.6600 | Val F1: 0.7008 | Class 0: 0.5707, Class 1: 0.7355\
+Epoch 027 | Train Loss: 0.6200 | Train Acc: 0.6756 | Val Loss: 0.6133 | Val Acc: 0.6622 | Val F1: 0.7010 | Class 0: 0.5805, Class 1: 0.7314\
+Epoch 028 | Train Loss: 0.6153 | Train Acc: 0.6717 | Val Loss: 0.6177 | Val Acc: 0.6555 | Val F1: 0.7027 | Class 0: 0.5415, Class 1: 0.7521\
+Epoch 029 | Train Loss: 0.6135 | Train Acc: 0.6706 | Val Loss: 0.6282 | Val Acc: 0.6532 | Val F1: 0.7059 | Class 0: 0.5171, Class 1: 0.7686\
+Epoch 030 | Train Loss: 0.6172 | Train Acc: 0.6742 | Val Loss: 0.6207 | Val Acc: 0.6600 | Val F1: 0.6752 | Class 0: 0.6683, Class 1: 0.6529\
+Epoch 031 | Train Loss: 0.6179 | Train Acc: 0.6689 | Val Loss: 0.6134 | Val Acc: 0.6577 | Val F1: 0.6909 | Class 0: 0.6000, Class 1: 0.7066\
+Epoch 032 | Train Loss: 0.6155 | Train Acc: 0.6767 | Val Loss: 0.6190 | Val Acc: 0.6689 | Val F1: 0.7132 | Class 0: 0.5610, Class 1: 0.7603\
+Early stopping at epoch 32\
+Restored best model from epoch 12\
+Checkpoint saved to ./outputs/robust/models/simple_gin/checkpoint.pt\
+------------------------------------------------------------\
+Training complete. Best Val F1: 0.7477 (Acc: 0.6980) at epoch 12\
+\
+============================================================\
+Evaluating on test set\
+============================================================\
+Test Results:\
+  Accuracy: 0.6629\
+  Precision: 0.6492\
+  Recall: 0.8182\
+  F1 Score: 0.7239\
+  Class 0 Accuracy: 0.4806\
+  Class 1 Accuracy: 0.8182\
+\
+Model saved to ./outputs/robust/models/simple_gin/simple_gin_model_seed42.pth\
+Results saved to ./outputs/robust/models/simple_gin/results_seed42.json\
+\
+============================================================\
+Training Complete!\
+============================================================\
+  Best Val F1: 0.7477 (Acc: 0.6980, epoch 12)\
+  Test Accuracy: 0.6629\
+  Test F1: 0.7239\
+\
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt --cross-validation --n-folds 5 --output-dir ./outputs/models/simple_gin/cv/math --model-type simple_gin --log-interval 1 --hidden-channels 16 --dropout 0.5 --weight-decay 0.01 --batch-size 32\
+\
+============================================================\
+GNN Training for Graph Classification\
+============================================================\
+\
+Loading pre-processed dataset from: ./data/processed/deepseek/math_balanced/undirected/encoder/final_with_rev.pt\
+\
+Dataset: PreProcessedDataset(981 graphs, file=final_with_rev.pt)\
+  Total graphs: 981\
+  Positive (correct): 500\
+  Negative (incorrect): 481\
+  Class ratio: 50.97%\
+  Avg nodes: 39.3\
+  Edge types: 10\
+\
+Graph structure:\
+  Input features: 3\
+  Edge types: [('thought', 'root', 'thought'), ('thought', 'rev_root', 'thought'), ('thought', 'continuous_logic', 'thought'), ('thought', 'rev_continuous_logic', 'thought'), ('thought', 'exploration', 'thought'), ('thought', 'rev_exploration', 'thought'), ('thought', 'backtracking', 'thought'), ('thought', 'rev_backtracking', 'thought'), ('thought', 'validation', 'thought'), ('thought', 'rev_validation', 'thought')]\
+\
+============================================================\
+Running 5-fold cross-validation\
+============================================================\
+\
+============================================================\
+Fold 1/5\
+============================================================\
+/Users/daniel/Desktop/present/classes/CS224w/cs224w-project/src/models/gin.py:356: UserWarning: 'nn.glob.GlobalAttention' is deprecated, use 'nn.aggr.AttentionalAggregation' instead\
+  self.pool = GlobalAttention(gate_nn)\
+Training on mps\
+Model parameters: 18,531\
+------------------------------------------------------------\
+Epoch 001 | Train Loss: 0.7473 | Train Acc: 0.5370 | Val Loss: 0.6881 | Val Acc: 0.5482 | Val F1: 0.6833 | Class 0: 0.1237, Class 1: 0.9600\
+Epoch 002 | Train Loss: 0.6728 | Train Acc: 0.5816 | Val Loss: 0.6662 | Val Acc: 0.5939 | Val F1: 0.5402 | Class 0: 0.7216, Class 1: 0.4700\
+Epoch 003 | Train Loss: 0.6419 | Train Acc: 0.5867 | Val Loss: 0.6504 | Val Acc: 0.5838 | Val F1: 0.5060 | Class 0: 0.7526, Class 1: 0.4200\
+Epoch 004 | Train Loss: 0.6414 | Train Acc: 0.5880 | Val Loss: 0.6228 | Val Acc: 0.7005 | Val F1: 0.7005 | Class 0: 0.7113, Class 1: 0.6900\
+Epoch 005 | Train Loss: 0.6086 | Train Acc: 0.6122 | Val Loss: 0.6184 | Val Acc: 0.7056 | Val F1: 0.7100 | Class 0: 0.7010, Class 1: 0.7100\
+Epoch 006 | Train Loss: 0.5992 | Train Acc: 0.6033 | Val Loss: 0.6143 | Val Acc: 0.6345 | Val F1: 0.6087 | Class 0: 0.7113, Class 1: 0.5600\
+Epoch 007 | Train Loss: 0.5891 | Train Acc: 0.6237 | Val Loss: 0.6077 | Val Acc: 0.6751 | Val F1: 0.6701 | Class 0: 0.7010, Class 1: 0.6500\
+Epoch 008 | Train Loss: 0.5729 | Train Acc: 0.6110 | Val Loss: 0.6039 | Val Acc: 0.6548 | Val F1: 0.6531 | Class 0: 0.6701, Class 1: 0.6400\
+Epoch 009 | Train Loss: 0.5796 | Train Acc: 0.6110 | Val Loss: 0.6042 | Val Acc: 0.6244 | Val F1: 0.5698 | Class 0: 0.7629, Class 1: 0.4900\
+Epoch 010 | Train Loss: 0.5674 | Train Acc: 0.6135 | Val Loss: 0.6013 | Val Acc: 0.6447 | Val F1: 0.5882 | Class 0: 0.7938, Class 1: 0.5000\
+Epoch 011 | Train Loss: 0.5668 | Train Acc: 0.6237 | Val Loss: 0.5976 | Val Acc: 0.6345 | Val F1: 0.5955 | Class 0: 0.7423, Class 1: 0.5300\
+Epoch 012 | Train Loss: 0.5537 | Train Acc: 0.6199 | Val Loss: 0.5960 | Val Acc: 0.6396 | Val F1: 0.5848 | Class 0: 0.7835, Class 1: 0.5000\
+Epoch 013 | Train Loss: 0.5512 | Train Acc: 0.5969 | Val Loss: 0.5981 | Val Acc: 0.6345 | Val F1: 0.5610 | Class 0: 0.8144, Class 1: 0.4600\
+Epoch 014 | Train Loss: 0.5513 | Train Acc: 0.6263 | Val Loss: 0.5987 | Val Acc: 0.6244 | Val F1: 0.5432 | Class 0: 0.8144, Class 1: 0.4400\
+Epoch 015 | Train Loss: 0.5385 | Train Acc: 0.6352 | Val Loss: 0.5961 | Val Acc: 0.6345 | Val F1: 0.5556 | Class 0: 0.8247, Class 1: 0.4500\
+Epoch 016 | Train Loss: 0.5379 | Train Acc: 0.6327 | Val Loss: 0.5959 | Val Acc: 0.6294 | Val F1: 0.5521 | Class 0: 0.8144, Class 1: 0.4500\
+Epoch 017 | Train Loss: 0.5460 | Train Acc: 0.6033 | Val Loss: 0.5951 | Val Acc: 0.6345 | Val F1: 0.5556 | Class 0: 0.8247, Class 1: 0.4500\
+Epoch 018 | Train Loss: 0.5580 | Train Acc: 0.6339 | Val Loss: 0.5916 | Val Acc: 0.6294 | Val F1: 0.5409 | Class 0: 0.8351, Class 1: 0.4300\
+Epoch 019 | Train Loss: 0.5496 | Train Acc: 0.6110 | Val Loss: 0.5933 | Val Acc: 0.6396 | Val F1: 0.5478 | Class 0: 0.8557, Class 1: 0.4300\
+Epoch 020 | Train Loss: 0.5520 | Train Acc: 0.6224 | Val Loss: 0.5940 | Val Acc: 0.6142 | Val F1: 0.4933 | Class 0: 0.8660, Class 1: 0.3700\
+Epoch 021 | Train Loss: 0.5476 | Train Acc: 0.6161 | Val Loss: 0.5918 | Val Acc: 0.6447 | Val F1: 0.5513 | Class 0: 0.8660, Class 1: 0.4300\
+Epoch 022 | Train Loss: 0.5426 | Train Acc: 0.6390 | Val Loss: 0.5903 | Val Acc: 0.6447 | Val F1: 0.5570 | Class 0: 0.8557, Class 1: 0.4400\
+Epoch 023 | Train Loss: 0.5433 | Train Acc: 0.6008 | Val Loss: 0.5916 | Val Acc: 0.6193 | Val F1: 0.5098 | Class 0: 0.8557, Class 1: 0.3900\
+Epoch 024 | Train Loss: 0.5375 | Train Acc: 0.6199 | Val Loss: 0.5880 | Val Acc: 0.6396 | Val F1: 0.5478 | Class 0: 0.8557, Class 1: 0.4300\
+Epoch 025 | Train Loss: 0.5351 | Train Acc: 0.6212 | Val Loss: 0.5853 | Val Acc: 0.6345 | Val F1: 0.5500 | Class 0: 0.8351, Class 1: 0.4400\
+Early stopping at epoch 25\
+Restored best model from epoch 5\
+Checkpoint saved to ./outputs/models/simple_gin/cv/math/checkpoint.pt\
+------------------------------------------------------------\
+Training complete. Best Val F1: 0.7100 (Acc: 0.7056) at epoch 5\
+Test Results:\
+  Accuracy: 0.7056\
+  Precision: 0.7100\
+  Recall: 0.7100\
+  F1 Score: 0.7100\
+  Class 0 Accuracy: 0.7010\
+  Class 1 Accuracy: 0.7100\
+\
+============================================================\
+Fold 2/5\
+============================================================\
+Training on mps\
+Model parameters: 18,531\
+------------------------------------------------------------\
+Epoch 001 | Train Loss: 0.7612 | Train Acc: 0.5261 | Val Loss: 0.6982 | Val Acc: 0.5153 | Val F1: 0.6780 | Class 0: 0.0104, Class 1: 1.0000\
+Epoch 002 | Train Loss: 0.6665 | Train Acc: 0.5975 | Val Loss: 0.6888 | Val Acc: 0.5459 | Val F1: 0.6899 | Class 0: 0.0833, Class 1: 0.9900\
+Epoch 003 | Train Loss: 0.6775 | Train Acc: 0.5873 | Val Loss: 0.6612 | Val Acc: 0.5969 | Val F1: 0.7063 | Class 0: 0.2292, Class 1: 0.9500\
+Epoch 004 | Train Loss: 0.6024 | Train Acc: 0.6153 | Val Loss: 0.6399 | Val Acc: 0.6633 | Val F1: 0.7360 | Class 0: 0.3958, Class 1: 0.9200\
+Epoch 005 | Train Loss: 0.5878 | Train Acc: 0.6102 | Val Loss: 0.6210 | Val Acc: 0.6837 | Val F1: 0.7395 | Class 0: 0.4792, Class 1: 0.8800\
+Epoch 006 | Train Loss: 0.5856 | Train Acc: 0.6025 | Val Loss: 0.6174 | Val Acc: 0.6939 | Val F1: 0.7436 | Class 0: 0.5104, Class 1: 0.8700\
+Epoch 007 | Train Loss: 0.5677 | Train Acc: 0.6344 | Val Loss: 0.6150 | Val Acc: 0.6888 | Val F1: 0.7404 | Class 0: 0.5000, Class 1: 0.8700\
+Epoch 008 | Train Loss: 0.5819 | Train Acc: 0.6025 | Val Loss: 0.6130 | Val Acc: 0.7041 | Val F1: 0.7478 | Class 0: 0.5417, Class 1: 0.8600\
+Epoch 009 | Train Loss: 0.5553 | Train Acc: 0.6255 | Val Loss: 0.6119 | Val Acc: 0.7143 | Val F1: 0.7565 | Class 0: 0.5521, Class 1: 0.8700\
+Epoch 010 | Train Loss: 0.5657 | Train Acc: 0.6242 | Val Loss: 0.6147 | Val Acc: 0.6837 | Val F1: 0.7207 | Class 0: 0.5625, Class 1: 0.8000\
+Epoch 011 | Train Loss: 0.5621 | Train Acc: 0.6268 | Val Loss: 0.6122 | Val Acc: 0.6888 | Val F1: 0.7189 | Class 0: 0.5938, Class 1: 0.7800\
+Epoch 012 | Train Loss: 0.5515 | Train Acc: 0.6204 | Val Loss: 0.6116 | Val Acc: 0.6888 | Val F1: 0.7189 | Class 0: 0.5938, Class 1: 0.7800\
+Epoch 013 | Train Loss: 0.5669 | Train Acc: 0.6153 | Val Loss: 0.6145 | Val Acc: 0.6939 | Val F1: 0.7196 | Class 0: 0.6146, Class 1: 0.7700\
+Epoch 014 | Train Loss: 0.5539 | Train Acc: 0.6382 | Val Loss: 0.6166 | Val Acc: 0.6888 | Val F1: 0.7215 | Class 0: 0.5833, Class 1: 0.7900\
+Epoch 015 | Train Loss: 0.5520 | Train Acc: 0.6306 | Val Loss: 0.6150 | Val Acc: 0.6990 | Val F1: 0.7177 | Class 0: 0.6458, Class 1: 0.7500\
+Epoch 016 | Train Loss: 0.5406 | Train Acc: 0.6446 | Val Loss: 0.6113 | Val Acc: 0.6990 | Val F1: 0.7256 | Class 0: 0.6146, Class 1: 0.7800\
+Epoch 017 | Train Loss: 0.5340 | Train Acc: 0.6217 | Val Loss: 0.6140 | Val Acc: 0.7041 | Val F1: 0.7212 | Class 0: 0.6562, Class 1: 0.7500\
+Epoch 018 | Train Loss: 0.5475 | Train Acc: 0.6561 | Val Loss: 0.6026 | Val Acc: 0.7092 | Val F1: 0.7444 | Class 0: 0.5833, Class 1: 0.8300\
+Epoch 019 | Train Loss: 0.5411 | Train Acc: 0.6357 | Val Loss: 0.6073 | Val Acc: 0.7143 | Val F1: 0.7477 | Class 0: 0.5938, Class 1: 0.8300\
+Epoch 020 | Train Loss: 0.5490 | Train Acc: 0.6293 | Val Loss: 0.6109 | Val Acc: 0.6888 | Val F1: 0.6995 | Class 0: 0.6667, Class 1: 0.7100\
+Epoch 021 | Train Loss: 0.5440 | Train Acc: 0.6357 | Val Loss: 0.6029 | Val Acc: 0.7041 | Val F1: 0.7212 | Class 0: 0.6562, Class 1: 0.7500\
+Epoch 022 | Train Loss: 0.5356 | Train Acc: 0.6369 | Val Loss: 0.6074 | Val Acc: 0.6837 | Val F1: 0.6931 | Class 0: 0.6667, Class 1: 0.7000\
+Epoch 023 | Train Loss: 0.5300 | Train Acc: 0.6459 | Val Loss: 0.6094 | Val Acc: 0.6786 | Val F1: 0.6866 | Class 0: 0.6667, Class 1: 0.6900\
+Epoch 024 | Train Loss: 0.5446 | Train Acc: 0.6242 | Val Loss: 0.6135 | Val Acc: 0.6582 | Val F1: 0.6528 | Class 0: 0.6875, Class 1: 0.6300\
+Epoch 025 | Train Loss: 0.5276 | Train Acc: 0.6637 | Val Loss: 0.6109 | Val Acc: 0.6786 | Val F1: 0.6834 | Class 0: 0.6771, Class 1: 0.6800\
+Epoch 026 | Train Loss: 0.5324 | Train Acc: 0.6204 | Val Loss: 0.6109 | Val Acc: 0.6888 | Val F1: 0.6965 | Class 0: 0.6771, Class 1: 0.7000\
+Epoch 027 | Train Loss: 0.5399 | Train Acc: 0.6624 | Val Loss: 0.6176 | Val Acc: 0.6633 | Val F1: 0.6633 | Class 0: 0.6771, Class 1: 0.6500\
+Epoch 028 | Train Loss: 0.5308 | Train Acc: 0.6255 | Val Loss: 0.6167 | Val Acc: 0.6582 | Val F1: 0.6564 | Class 0: 0.6771, Class 1: 0.6400\
+Epoch 029 | Train Loss: 0.5371 | Train Acc: 0.6369 | Val Loss: 0.6178 | Val Acc: 0.6429 | Val F1: 0.6392 | Class 0: 0.6667, Class 1: 0.6200\
+Early stopping at epoch 29\
+Restored best model from epoch 9\
+Checkpoint saved to ./outputs/models/simple_gin/cv/math/checkpoint.pt\
+------------------------------------------------------------\
+Training complete. Best Val F1: 0.7565 (Acc: 0.7143) at epoch 9\
+Test Results:\
+  Accuracy: 0.7143\
+  Precision: 0.6692\
+  Recall: 0.8700\
+  F1 Score: 0.7565\
+  Class 0 Accuracy: 0.5521\
+  Class 1 Accuracy: 0.8700\
+\
+============================================================\
+Fold 3/5\
+============================================================\
+Training on mps\
+Model parameters: 18,531\
+------------------------------------------------------------\
+Epoch 001 | Train Loss: 0.6990 | Train Acc: 0.5197 | Val Loss: 0.6924 | Val Acc: 0.4898 | Val F1: 0.0000 | Class 0: 1.0000, Class 1: 0.0000\
+Epoch 002 | Train Loss: 0.6396 | Train Acc: 0.5656 | Val Loss: 0.6730 | Val Acc: 0.4949 | Val F1: 0.1391 | Class 0: 0.9271, Class 1: 0.0800\
+Epoch 003 | Train Loss: 0.6187 | Train Acc: 0.5822 | Val Loss: 0.6427 | Val Acc: 0.6071 | Val F1: 0.5792 | Class 0: 0.6875, Class 1: 0.5300\
+Epoch 004 | Train Loss: 0.6043 | Train Acc: 0.5809 | Val Loss: 0.6327 | Val Acc: 0.6990 | Val F1: 0.7230 | Class 0: 0.6250, Class 1: 0.7700\
+Epoch 005 | Train Loss: 0.5910 | Train Acc: 0.5783 | Val Loss: 0.6400 | Val Acc: 0.6837 | Val F1: 0.6990 | Class 0: 0.6458, Class 1: 0.7200\
+Epoch 006 | Train Loss: 0.5785 | Train Acc: 0.5694 | Val Loss: 0.6392 | Val Acc: 0.6071 | Val F1: 0.5698 | Class 0: 0.7083, Class 1: 0.5100\
+Epoch 007 | Train Loss: 0.5591 | Train Acc: 0.6102 | Val Loss: 0.6460 | Val Acc: 0.5918 | Val F1: 0.5455 | Class 0: 0.7083, Class 1: 0.4800\
+Epoch 008 | Train Loss: 0.5594 | Train Acc: 0.6178 | Val Loss: 0.6426 | Val Acc: 0.6276 | Val F1: 0.6054 | Class 0: 0.6979, Class 1: 0.5600\
+Epoch 009 | Train Loss: 0.5562 | Train Acc: 0.6000 | Val Loss: 0.6210 | Val Acc: 0.6327 | Val F1: 0.6129 | Class 0: 0.6979, Class 1: 0.5700\
+Epoch 010 | Train Loss: 0.5611 | Train Acc: 0.5873 | Val Loss: 0.6221 | Val Acc: 0.5918 | Val F1: 0.5238 | Class 0: 0.7500, Class 1: 0.4400\
+Epoch 011 | Train Loss: 0.5564 | Train Acc: 0.5975 | Val Loss: 0.6278 | Val Acc: 0.5765 | Val F1: 0.4970 | Class 0: 0.7500, Class 1: 0.4100\
+Epoch 012 | Train Loss: 0.5617 | Train Acc: 0.6217 | Val Loss: 0.6304 | Val Acc: 0.5357 | Val F1: 0.3636 | Class 0: 0.8229, Class 1: 0.2600\
+Epoch 013 | Train Loss: 0.5459 | Train Acc: 0.6025 | Val Loss: 0.6234 | Val Acc: 0.5765 | Val F1: 0.4780 | Class 0: 0.7812, Class 1: 0.3800\
+Epoch 014 | Train Loss: 0.5349 | Train Acc: 0.6153 | Val Loss: 0.6187 | Val Acc: 0.6122 | Val F1: 0.5632 | Class 0: 0.7396, Class 1: 0.4900\
+Epoch 015 | Train Loss: 0.5586 | Train Acc: 0.5847 | Val Loss: 0.6153 | Val Acc: 0.6071 | Val F1: 0.5333 | Class 0: 0.7812, Class 1: 0.4400\
+Epoch 016 | Train Loss: 0.5421 | Train Acc: 0.6102 | Val Loss: 0.6223 | Val Acc: 0.5663 | Val F1: 0.4654 | Class 0: 0.7708, Class 1: 0.3700\
+Epoch 017 | Train Loss: 0.5424 | Train Acc: 0.6115 | Val Loss: 0.6175 | Val Acc: 0.5663 | Val F1: 0.4654 | Class 0: 0.7708, Class 1: 0.3700\
+Epoch 018 | Train Loss: 0.5550 | Train Acc: 0.5987 | Val Loss: 0.6187 | Val Acc: 0.5663 | Val F1: 0.4516 | Class 0: 0.7917, Class 1: 0.3500\
+Epoch 019 | Train Loss: 0.5415 | Train Acc: 0.6000 | Val Loss: 0.6081 | Val Acc: 0.5867 | Val F1: 0.5150 | Class 0: 0.7500, Class 1: 0.4300\
+Epoch 020 | Train Loss: 0.5312 | Train Acc: 0.6446 | Val Loss: 0.6148 | Val Acc: 0.5714 | Val F1: 0.4750 | Class 0: 0.7708, Class 1: 0.3800\
+Epoch 021 | Train Loss: 0.5357 | Train Acc: 0.6064 | Val Loss: 0.6091 | Val Acc: 0.5663 | Val F1: 0.4586 | Class 0: 0.7812, Class 1: 0.3600\
+Epoch 022 | Train Loss: 0.5353 | Train Acc: 0.6280 | Val Loss: 0.6139 | Val Acc: 0.5510 | Val F1: 0.3973 | Class 0: 0.8229, Class 1: 0.2900\
+Epoch 023 | Train Loss: 0.5402 | Train Acc: 0.6166 | Val Loss: 0.6095 | Val Acc: 0.5918 | Val F1: 0.5062 | Class 0: 0.7812, Class 1: 0.4100\
+Epoch 024 | Train Loss: 0.5333 | Train Acc: 0.6280 | Val Loss: 0.6020 | Val Acc: 0.6071 | Val F1: 0.5497 | Class 0: 0.7500, Class 1: 0.4700\
+Early stopping at epoch 24\
+Restored best model from epoch 4\
+Checkpoint saved to ./outputs/models/simple_gin/cv/math/checkpoint.pt\
+------------------------------------------------------------\
+Training complete. Best Val F1: 0.7230 (Acc: 0.6990) at epoch 4\
+Test Results:\
+  Accuracy: 0.6990\
+  Precision: 0.6814\
+  Recall: 0.7700\
+  F1 Score: 0.7230\
+  Class 0 Accuracy: 0.6250\
+  Class 1 Accuracy: 0.7700\
+\
+============================================================\
+Fold 4/5\
+============================================================\
+Training on mps\
+Model parameters: 18,531\
+------------------------------------------------------------\
+Epoch 001 | Train Loss: 0.7259 | Train Acc: 0.5465 | Val Loss: 0.7139 | Val Acc: 0.4898 | Val F1: 0.0000 | Class 0: 1.0000, Class 1: 0.0000\
+Epoch 002 | Train Loss: 0.6734 | Train Acc: 0.5592 | Val Loss: 0.6766 | Val Acc: 0.5612 | Val F1: 0.3582 | Class 0: 0.8958, Class 1: 0.2400\
+Epoch 003 | Train Loss: 0.6412 | Train Acc: 0.5834 | Val Loss: 0.6758 | Val Acc: 0.5612 | Val F1: 0.3281 | Class 0: 0.9271, Class 1: 0.2100\
+Epoch 004 | Train Loss: 0.6370 | Train Acc: 0.5529 | Val Loss: 0.6552 | Val Acc: 0.5816 | Val F1: 0.4384 | Class 0: 0.8542, Class 1: 0.3200\
+Epoch 005 | Train Loss: 0.6169 | Train Acc: 0.5682 | Val Loss: 0.6710 | Val Acc: 0.5561 | Val F1: 0.3459 | Class 0: 0.8958, Class 1: 0.2300\
+Epoch 006 | Train Loss: 0.6088 | Train Acc: 0.5439 | Val Loss: 0.6592 | Val Acc: 0.5816 | Val F1: 0.4058 | Class 0: 0.8958, Class 1: 0.2800\
+Epoch 007 | Train Loss: 0.6023 | Train Acc: 0.5694 | Val Loss: 0.6673 | Val Acc: 0.5918 | Val F1: 0.3939 | Class 0: 0.9375, Class 1: 0.2600\
+Epoch 008 | Train Loss: 0.5907 | Train Acc: 0.5860 | Val Loss: 0.6554 | Val Acc: 0.6122 | Val F1: 0.4865 | Class 0: 0.8750, Class 1: 0.3600\
+Epoch 009 | Train Loss: 0.5874 | Train Acc: 0.6051 | Val Loss: 0.6791 | Val Acc: 0.5969 | Val F1: 0.4234 | Class 0: 0.9167, Class 1: 0.2900\
+Epoch 010 | Train Loss: 0.5779 | Train Acc: 0.5720 | Val Loss: 0.6771 | Val Acc: 0.5969 | Val F1: 0.4148 | Class 0: 0.9271, Class 1: 0.2800\
+Epoch 011 | Train Loss: 0.5891 | Train Acc: 0.5936 | Val Loss: 0.6766 | Val Acc: 0.5765 | Val F1: 0.3465 | Class 0: 0.9479, Class 1: 0.2200\
+Epoch 012 | Train Loss: 0.5792 | Train Acc: 0.5936 | Val Loss: 0.6665 | Val Acc: 0.5816 | Val F1: 0.3881 | Class 0: 0.9167, Class 1: 0.2600\
+Epoch 013 | Train Loss: 0.5721 | Train Acc: 0.5783 | Val Loss: 0.6678 | Val Acc: 0.5867 | Val F1: 0.3721 | Class 0: 0.9479, Class 1: 0.2400\
+Epoch 014 | Train Loss: 0.5654 | Train Acc: 0.5962 | Val Loss: 0.6604 | Val Acc: 0.5816 | Val F1: 0.3594 | Class 0: 0.9479, Class 1: 0.2300\
+Epoch 015 | Train Loss: 0.5675 | Train Acc: 0.5847 | Val Loss: 0.6461 | Val Acc: 0.6429 | Val F1: 0.5395 | Class 0: 0.8854, Class 1: 0.4100\
+Epoch 016 | Train Loss: 0.5593 | Train Acc: 0.6038 | Val Loss: 0.6402 | Val Acc: 0.6224 | Val F1: 0.5132 | Class 0: 0.8646, Class 1: 0.3900\
+Epoch 017 | Train Loss: 0.5650 | Train Acc: 0.6025 | Val Loss: 0.6507 | Val Acc: 0.6173 | Val F1: 0.4828 | Class 0: 0.8958, Class 1: 0.3500\
+Epoch 018 | Train Loss: 0.5500 | Train Acc: 0.6089 | Val Loss: 0.6401 | Val Acc: 0.6429 | Val F1: 0.5395 | Class 0: 0.8854, Class 1: 0.4100\
+Epoch 019 | Train Loss: 0.5672 | Train Acc: 0.5924 | Val Loss: 0.6521 | Val Acc: 0.5918 | Val F1: 0.4203 | Class 0: 0.9062, Class 1: 0.2900\
+Epoch 020 | Train Loss: 0.5529 | Train Acc: 0.5975 | Val Loss: 0.6315 | Val Acc: 0.6531 | Val F1: 0.5750 | Class 0: 0.8542, Class 1: 0.4600\
+Epoch 021 | Train Loss: 0.5529 | Train Acc: 0.5924 | Val Loss: 0.6454 | Val Acc: 0.6327 | Val F1: 0.5135 | Class 0: 0.8958, Class 1: 0.3800\
+Epoch 022 | Train Loss: 0.5526 | Train Acc: 0.6178 | Val Loss: 0.6371 | Val Acc: 0.6531 | Val F1: 0.5641 | Class 0: 0.8750, Class 1: 0.4400\
+Epoch 023 | Train Loss: 0.5395 | Train Acc: 0.6229 | Val Loss: 0.6397 | Val Acc: 0.6429 | Val F1: 0.5270 | Class 0: 0.9062, Class 1: 0.3900\
+Epoch 024 | Train Loss: 0.5260 | Train Acc: 0.6268 | Val Loss: 0.6526 | Val Acc: 0.6071 | Val F1: 0.4460 | Class 0: 0.9167, Class 1: 0.3100\
+Epoch 025 | Train Loss: 0.5460 | Train Acc: 0.6191 | Val Loss: 0.6530 | Val Acc: 0.6122 | Val F1: 0.4571 | Class 0: 0.9167, Class 1: 0.3200\
+Epoch 026 | Train Loss: 0.5388 | Train Acc: 0.6076 | Val Loss: 0.6564 | Val Acc: 0.6071 | Val F1: 0.4460 | Class 0: 0.9167, Class 1: 0.3100\
+Epoch 027 | Train Loss: 0.5364 | Train Acc: 0.6102 | Val Loss: 0.6606 | Val Acc: 0.5918 | Val F1: 0.3846 | Class 0: 0.9479, Class 1: 0.2500\
+Epoch 028 | Train Loss: 0.5349 | Train Acc: 0.6268 | Val Loss: 0.6464 | Val Acc: 0.6071 | Val F1: 0.4690 | Class 0: 0.8854, Class 1: 0.3400\
+Epoch 029 | Train Loss: 0.5429 | Train Acc: 0.6102 | Val Loss: 0.6536 | Val Acc: 0.5969 | Val F1: 0.4060 | Class 0: 0.9375, Class 1: 0.2700\
+Epoch 030 | Train Loss: 0.5442 | Train Acc: 0.6051 | Val Loss: 0.6536 | Val Acc: 0.5612 | Val F1: 0.2712 | Class 0: 0.9792, Class 1: 0.1600\
+Epoch 031 | Train Loss: 0.5299 | Train Acc: 0.6191 | Val Loss: 0.6596 | Val Acc: 0.5510 | Val F1: 0.2414 | Class 0: 0.9792, Class 1: 0.1400\
+Epoch 032 | Train Loss: 0.5336 | Train Acc: 0.6191 | Val Loss: 0.6521 | Val Acc: 0.5969 | Val F1: 0.3969 | Class 0: 0.9479, Class 1: 0.2600\
+Epoch 033 | Train Loss: 0.5264 | Train Acc: 0.6153 | Val Loss: 0.6673 | Val Acc: 0.5918 | Val F1: 0.3939 | Class 0: 0.9375, Class 1: 0.2600\
+Epoch 034 | Train Loss: 0.5288 | Train Acc: 0.6229 | Val Loss: 0.6377 | Val Acc: 0.6429 | Val F1: 0.5455 | Class 0: 0.8750, Class 1: 0.4200\
+Epoch 035 | Train Loss: 0.5388 | Train Acc: 0.6140 | Val Loss: 0.6428 | Val Acc: 0.6582 | Val F1: 0.5732 | Class 0: 0.8750, Class 1: 0.4500\
+Epoch 036 | Train Loss: 0.5277 | Train Acc: 0.6178 | Val Loss: 0.6445 | Val Acc: 0.6480 | Val F1: 0.5241 | Class 0: 0.9271, Class 1: 0.3800\
+Epoch 037 | Train Loss: 0.5288 | Train Acc: 0.6089 | Val Loss: 0.6546 | Val Acc: 0.6378 | Val F1: 0.5035 | Class 0: 0.9271, Class 1: 0.3600\
+Epoch 038 | Train Loss: 0.5278 | Train Acc: 0.5975 | Val Loss: 0.6505 | Val Acc: 0.6480 | Val F1: 0.5306 | Class 0: 0.9167, Class 1: 0.3900\
+Epoch 039 | Train Loss: 0.5216 | Train Acc: 0.6548 | Val Loss: 0.6375 | Val Acc: 0.6582 | Val F1: 0.5677 | Class 0: 0.8854, Class 1: 0.4400\
+Epoch 040 | Train Loss: 0.5219 | Train Acc: 0.6471 | Val Loss: 0.6265 | Val Acc: 0.6531 | Val F1: 0.5696 | Class 0: 0.8646, Class 1: 0.4500\
+Early stopping at epoch 40\
+Restored best model from epoch 20\
+Checkpoint saved to ./outputs/models/simple_gin/cv/math/checkpoint.pt\
+------------------------------------------------------------\
+Training complete. Best Val F1: 0.5750 (Acc: 0.6531) at epoch 20\
+Test Results:\
+  Accuracy: 0.6531\
+  Precision: 0.7667\
+  Recall: 0.4600\
+  F1 Score: 0.5750\
+  Class 0 Accuracy: 0.8542\
+  Class 1 Accuracy: 0.4600\
+\
+\
+poetry run python scripts/02_train_model.py --pt-file ./data/processed/deepseekNEW/combined/undirected/final_regraded_with_rev.pt --output-dir ./outputsNEW/gat/models/hetero_gat --model-type hetero_gat --encoder-type robust --log-interval 1\
+\
+============================================================\
+GNN Training for Graph Classification\
+============================================================\
+\
+Loading pre-processed dataset from: ./data/processed/deepseek/combined3/directed/final_regraded.pt\
+\
+Dataset: PreProcessedDataset(4474 graphs, file=final_regraded.pt)\
+  Total graphs: 4474\
+  Positive (correct): 2420\
+  Negative (incorrect): 2054\
+  Class ratio: 54.09%\
+  Avg nodes: 44.3\
+  Edge types: 5\
+\
+Graph structure:\
+  Input features: 4\
+  Edge types: [('thought', 'root', 'thought'), ('thought', 'continuous_logic', 'thought'), ('thought', 'exploration', 'thought'), ('thought', 'backtracking', 'thought'), ('thought', 'validation', 'thought')]\
+\
+============================================================\
+Training with 80%/10%/10% split\
+============================================================\
+\
+Data splits:\
+  Train batches: 112 (3579 samples)\
+  Val batches: 14 (447 samples)\
+  Test batches: 14 (448 samples)\
+\
+Creating hetero_gat model...\
+  Parameters: 131,747\
+\
+Training...\
+------------------------------------------------------------\
+Training on mps\
+Model parameters: 131,747\
+------------------------------------------------------------\
+Epoch 001 | Train Loss: 0.6327 | Train Acc: 0.6533 | Val Loss: 0.6228 | Val Acc: 0.6667 | Val F1: 0.7151 | Class 0: 0.5415, Class 1: 0.7727\
+Epoch 002 | Train Loss: 0.6286 | Train Acc: 0.6594 | Val Loss: 0.6225 | Val Acc: 0.6577 | Val F1: 0.7223 | Class 0: 0.4634, Class 1: 0.8223\
+Epoch 003 | Train Loss: 0.6219 | Train Acc: 0.6664 | Val Loss: 0.6196 | Val Acc: 0.6801 | Val F1: 0.7327 | Class 0: 0.5268, Class 1: 0.8099\
+Epoch 004 | Train Loss: 0.6175 | Train Acc: 0.6692 | Val Loss: 0.6261 | Val Acc: 0.6622 | Val F1: 0.7124 | Class 0: 0.5317, Class 1: 0.7727\
+Epoch 005 | Train Loss: 0.6208 | Train Acc: 0.6642 | Val Loss: 0.6206 | Val Acc: 0.6711 | Val F1: 0.7273 | Class 0: 0.5073, Class 1: 0.8099\
+Epoch 006 | Train Loss: 0.6124 | Train Acc: 0.6739 | Val Loss: 0.6185 | Val Acc: 0.6622 | Val F1: 0.6912 | Class 0: 0.6195, Class 1: 0.6983\
+Epoch 007 | Train Loss: 0.6090 | Train Acc: 0.6748 | Val Loss: 0.6346 | Val Acc: 0.6644 | Val F1: 0.7148 | Class 0: 0.5317, Class 1: 0.7769\
+Epoch 008 | Train Loss: 0.6013 | Train Acc: 0.6829 | Val Loss: 0.6447 | Val Acc: 0.6465 | Val F1: 0.7074 | Class 0: 0.4780, Class 1: 0.7893\
+Epoch 009 | Train Loss: 0.6027 | Train Acc: 0.6725 | Val Loss: 0.6348 | Val Acc: 0.6622 | Val F1: 0.7250 | Class 0: 0.4732, Class 1: 0.8223\
+Epoch 010 | Train Loss: 0.5980 | Train Acc: 0.6829 | Val Loss: 0.6502 | Val Acc: 0.6465 | Val F1: 0.6938 | Class 0: 0.5366, Class 1: 0.7397\
+Epoch 011 | Train Loss: 0.5930 | Train Acc: 0.6921 | Val Loss: 0.6449 | Val Acc: 0.6689 | Val F1: 0.7197 | Class 0: 0.5317, Class 1: 0.7851\
+Epoch 012 | Train Loss: 0.5875 | Train Acc: 0.6921 | Val Loss: 0.6472 | Val Acc: 0.6421 | Val F1: 0.7026 | Class 0: 0.4780, Class 1: 0.7810}

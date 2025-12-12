@@ -119,7 +119,7 @@ def main():
     parser.add_argument(
         "--hidden-channels",
         type=int,
-        default=64,
+        default=32,
         help="Hidden layer dimension",
     )
     parser.add_argument(
@@ -170,7 +170,7 @@ def main():
     parser.add_argument(
         "--lr",
         type=float,
-        default=1e-3,
+        default=1e-2,
         help="Learning rate",
     )
     parser.add_argument(
