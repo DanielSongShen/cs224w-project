@@ -31,11 +31,12 @@ class ReasoningGraphPipeline:
         max_workers: int = DEFAULT_MAX_WORKERS,
         use_async: bool = False,
         batch_size: int = DEFAULT_BATCH_SIZE,
-        debug: bool = False
+        debug: bool = False,
+        causal: bool = False
     ):
         """
         Initialize reasoning graph pipeline.
-        
+
         Args:
             llm_client: LLM client for API calls (must have .generate(messages) method)
             output_dir: Directory to store intermediate and final outputs
@@ -43,6 +44,7 @@ class ReasoningGraphPipeline:
             use_async: Whether to use async batch processing
             batch_size: Batch size for async processing
             debug: Enable detailed debug logging
+            causal: If True, only consider parents that occurred chronologically before
         """
         self.llm_client = llm_client
         self.output_dir = Path(output_dir)
@@ -51,6 +53,7 @@ class ReasoningGraphPipeline:
         self.use_async = use_async
         self.batch_size = batch_size
         self.debug = debug
+        self.causal = causal
     
     def run_full_pipeline(
         self, 
@@ -158,7 +161,8 @@ class ReasoningGraphPipeline:
                 llm_client=self.llm_client,
                 output_dir=self.output_dir,
                 max_workers=self.max_workers,
-                debug=self.debug
+                debug=self.debug,
+                causal=self.causal
             )
         elif start_step == 5:
             print("\n=== Skipping Step 4, loading process4.json ===")

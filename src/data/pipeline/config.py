@@ -14,7 +14,7 @@ SPLIT_WORDS = [
     "Alternatively", "Wait, no", "Hmm", "But wait", "Let me verify",
     "let's verify", "Or wait", "To verify", "Wait", "Verify",
     "Let's confirm", "Let's check", "Another example", "But let's",
-    "No:", "no:", "\n\n"
+    "No:", "no:"
 ]
 
 
