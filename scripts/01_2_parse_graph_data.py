@@ -13,7 +13,7 @@ from src.data.parser import (
     preprocess_openmath_reasoning_for_lcot2tree,
     save_preprocessed_data
 )
-from src.data.graph_builder import run_reasoning_pipeline
+from archive.graph_builder import run_reasoning_pipeline
 
 
 def load_filtered_samples(

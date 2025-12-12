@@ -46,25 +46,38 @@ export OPENAI_API_KEY="..."
 
 ### 1. Process Data (Build Graphs)
 
-Basic usage:
+Basic usage (to generate graphs):
 ```bash
-python scripts/01_parse_data.py
+python scripts/01_2_parse_graph_data.py
 ```
 
 Example with explicit dataset and output directory:
 ```bash
-python scripts/01_parse_data.py \
+python scripts/01_2_parse_graph_data.py \
   --n_samples 100 \
   --dataset "PrimeIntellect/verifiable-math-problems" \
   --output_dir ./data/processed/my_experiment
 ```
 
-**Fix/regenerate graphs** (if needed):
+**Fix/reconnect graphs** If the LLM does not connect any thoughts, we can run a post-hoc script to reconnect edges
 ```bash
-python scripts/01_8_fix_graphs.py \
+python scripts/01_6_fix_graphs.py \
   --input_path ./data/processed/<dataset>/final.json \
   --output_path ./data/processed/<dataset>/final_fixed.json
 ```
+
+**Make graphs Causal** Delete non-causal edges and reconnect
+```bash
+python scripts/01_7_causal_edges.py \
+  --input_path ./data/processed/<dataset>/final_fixed.json \
+  --output_path ./data/processed/<dataset>/final_causal.json
+```
+
+**Visualize graphs**
+```bash
+python scripts/01_4_visualize_graphs.py
+```
+
 
 ### 2. (Optional) Precompute Text Embeddings
 
